@@ -12,5 +12,3 @@ class TestBus(unittest.TestCase):
             self.fail('No exception is expected')
         finally:
             bus.release()
-
-

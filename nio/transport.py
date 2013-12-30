@@ -110,7 +110,9 @@ class TCPTransport(Transport):
         reactor.add_transport(self)
 
     def make_socket(self):
-        af, socktype, _, _, _ = socket.getaddrinfo(self.host, self.port, socket.AF_UNSPEC, socket.SOCK_STREAM)[0]
+        af, socktype, _, _, _ = socket.getaddrinfo(self.host, self.port,
+                                                   socket.AF_UNSPEC,
+                                                   socket.SOCK_STREAM)[0]
         self.sock = socket.socket(af, socktype)
 
     def open(self):

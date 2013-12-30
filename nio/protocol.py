@@ -34,8 +34,3 @@ class Protocol:
 
     def receive(self, data):
         pass
-
-
-
-
-

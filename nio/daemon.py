@@ -59,7 +59,8 @@ def daemon(**confargs):
                     sys.stderr.write('[CRITICAL] %s\n' % msg)
                 sys.exit(1)
             chroot = '/' if not 'chroot' in confargs else confargs['chroot']
-            pidfile = None if not 'pidfile' in confargs else confargs['pidfile']
+            pidfile = None if not 'pidfile' in confargs \
+                else confargs['pidfile']
             umask = 0 if not 'umask' in confargs else confargs['umask']
 
             os.chdir(chroot)
