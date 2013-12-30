@@ -1,6 +1,6 @@
 import socket
-from . import reactor
-from minerbus.utils import get_subclasses
+from nio import reactor
+from nio.utils import get_subclasses
 
 
 class UnknownTransport(Exception):

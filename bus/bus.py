@@ -24,7 +24,7 @@ class Bus:
             self.prepare_master(*args, **kwargs)
 
     def release(self):
-        pass    
+        pass
 
     def find_master(self):
         pass

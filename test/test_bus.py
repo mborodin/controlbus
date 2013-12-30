@@ -1,6 +1,6 @@
 import unittest
 
-from minerbus import Bus
+from bus import Bus
 
 
 class TestBus(unittest.TestCase):

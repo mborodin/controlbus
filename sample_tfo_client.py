@@ -1,7 +1,8 @@
-from minerbus.io import reactor
-from minerbus.io import transport
-from sample_tfo_server import SampleProtocol
 import time
+
+from nio import reactor
+from nio import transport
+from sample_tfo_server import SampleProtocol
 
 
 class SampleProtocolClient(SampleProtocol):
@@ -12,11 +13,11 @@ class SampleProtocolClient(SampleProtocol):
 
 if __name__ == '__main__':
     handler = SampleProtocolClient()
-    transport = transport.get('tfo', 'localhost', 3333, handler)  # TFOTransport('localhost', 3333, handler)
+    tr = transport.get('tfo', 'localhost', 3333, handler)
 
     try:
 
-        transport.open(b'Hummel-Hummel')
+        tr.open(b'Hummel-Hummel')
 
         reactor.start()
 
@@ -25,5 +26,5 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         pass
     finally:
-        transport.close()
+        tr.close()
         reactor.stop()

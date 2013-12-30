@@ -1,7 +1,7 @@
-from minerbus.io import reactor
-from minerbus.io.protocol import Protocol
-from minerbus.io.transport import TFOTransport
-from daemon import daemon, sigfinish
+from nio import reactor
+from nio.protocol import Protocol
+from nio.transport import TFOTransport
+from nio.daemon import sigfinish, daemon
 
 
 class SampleProtocol(Protocol):
