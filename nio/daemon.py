@@ -1,14 +1,16 @@
+import signal
+import sys
+import os
+
+
 def sighandler(sig):
     def decorated(f):
-        import signal
         signal.signal(sig, f)
         return f
     return decorated
 
 
 def sighup(f):
-    import signal
-
     @sighandler(signal.SIGHUP)
     def decorated(*args, **kwargs):
         f(*args, **kwargs)
@@ -16,8 +18,6 @@ def sighup(f):
 
 
 def sigint(f):
-    import signal
-
     @sighandler(signal.SIGINT)
     def decorated(*args, **kwargs):
         f(*args, **kwargs)
@@ -25,8 +25,6 @@ def sigint(f):
 
 
 def sigterm(f):
-    import signal
-
     @sighandler(signal.SIGTERM)
     def decorated(*args, **kwargs):
         f(*args, **kwargs)
@@ -44,8 +42,6 @@ def sigfinish(f):
 def daemon(**confargs):
     def decorated(f):
         def run_daemon(*args, **kwargs):
-            import sys
-            import os
             log = None if not 'log' in confargs else confargs['log']
             try:
                 pid = os.fork()

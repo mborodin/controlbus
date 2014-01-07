@@ -161,7 +161,6 @@ class TFOTransport(TCPTransport):
         self.sock.bind((self.host, self.port))
         self.sock.setsockopt(socket.SOL_TCP, _TCP_FASTOPEN, _QLEN)
         self.sock.listen(1)
-        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.make_unblocking()
 
     def open(self, hello):

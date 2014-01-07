@@ -1,10 +1,10 @@
 from nio import reactor
-from nio.protocol import Protocol
+from nio.protocols import BaseProtocol
 from nio.transport import TFOTransport
 from nio.daemon import sigfinish, daemon
 
 
-class SampleProtocol(Protocol):
+class SampleProtocol(BaseProtocol):
 
     def __init__(self):
         self.data = b'hello'
@@ -33,7 +33,7 @@ def stop(*args, **kwargs):
     reactor.stop()
 
 
-@daemon(pidfile='/home/mborodin/sample_server.pid')
+@daemon(pidfile='/var/run/sample_server.pid')
 def main():
 
     transport = TFOTransport('localhost', 3333, handler)

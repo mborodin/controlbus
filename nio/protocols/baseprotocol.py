@@ -1,4 +1,4 @@
-class Protocol:
+class BaseProtocol:
     def __init__(self):
         pass
 
