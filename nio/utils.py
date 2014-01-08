@@ -1,3 +1,5 @@
+from queue import Queue
+
 def get_subclasses(cls):
     subclasses = cls.__subclasses__()
     if len(subclasses) == 0:
@@ -32,3 +34,54 @@ def flatten(l):
     @return: Flat list
     """
     return [i for i in flatten_generator(l)]
+
+
+class RoundRobin:
+    def __init__(self, *iterables):
+        self.values = Queue()
+        map(self.values.put, flatten(iterables))
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        val = self.values.get(0)
+        self.values.task_done()
+        self.values.put(val)
+        return val
+
+
+class RangeRoundRobin:
+    def __init__(self, first, last):
+        if first > last:
+            raise RuntimeError('Range start is greater than range end')
+        self.first = first
+        self.last = last
+        self.current = first
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        val = self.current
+        self.current += 1
+        if self.current > self.last:
+            self.current = self.first
+        return val
+
+
+class LeasedRoundRobin:
+    def __init__(self, l):
+        self.values = Queue()
+        map(self.values.put, l)
+
+    def __iter__(self):
+        return self
+
+    def next(self):
+        val = self.values.get()
+        self.values.task_done()
+        return val
+
+    def release(self, val):
+        self.values.put(val)
