@@ -48,13 +48,13 @@ class Transport:
     def close(self):
         pass
 
-    def is_readable(self) -> bool:
+    def is_readable(self):
         pass
 
-    def is_writeable(self) -> bool:
+    def is_writeable(self):
         pass
 
-    def is_listening(self) -> bool:
+    def is_listening(self):
         pass
 
     def handle_connected(self):

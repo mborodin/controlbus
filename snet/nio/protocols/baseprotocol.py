@@ -20,7 +20,7 @@ class BaseProtocol:
     def connection_exception(self, exc):
         pass
 
-    def has_output(self) -> bool:
+    def has_output(self):
         pass
 
     def get_output(self):
