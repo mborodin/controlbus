@@ -19,7 +19,7 @@ def add_transport(transport, protocol):
     _transport_map[protocol].append(transport)
 
 
-def find_transports(protocol) -> list:
+def find_transports(protocol):
     if not protocol in _transport_map:
         return None
     return _transport_map[protocol]
@@ -39,7 +39,7 @@ class Transport:
         self.data_handler = data_handler
         add_transport(self, data_handler)
 
-    def fd(self) -> int:
+    def fd(self):
         pass
 
     def open(self, *args, **kwargs):
@@ -88,7 +88,7 @@ class TCPTransport(Transport):
         self.odata = None
         self.server = False
 
-    def is_readable(self) -> bool:
+    def is_readable(self):
         return not self.server
 
     def handle_close(self):
@@ -102,7 +102,7 @@ class TCPTransport(Transport):
     def fd(self):
         return self.sock.fileno()
 
-    def is_listening(self) -> bool:
+    def is_listening(self):
         return self.server
 
     def make_unblocking(self):
@@ -148,7 +148,7 @@ class TCPTransport(Transport):
             data = self.data_handler.get_output()
             self.sock.send(data)
 
-    def is_writeable(self) -> bool:
+    def is_writeable(self):
         return not self.server
 
 
