@@ -83,7 +83,8 @@ class RangeRoundRobin:
 class LeasedRoundRobin:
     def __init__(self, l):
         self.values = Queue()
-        map(self.values.put, l)
+        for i in l:
+            self.values.put(i)
 
     def __iter__(self):
         return self
