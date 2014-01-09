@@ -1,3 +1,3 @@
-from .snet.nio.protocols.baseprotocol import BaseProtocol
+from .baseprotocol import BaseProtocol
 
 make_pep8_happy = BaseProtocol
