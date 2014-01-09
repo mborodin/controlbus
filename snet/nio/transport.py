@@ -119,7 +119,6 @@ class TCPTransport(Transport):
         self.make_socket()
         self.sock.connect((self.host, self.port))
         self.make_unblocking()
-        self.data_handler.connection_made()
 
     def listen(self):
         self.server = True
