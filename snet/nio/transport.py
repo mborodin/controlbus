@@ -1,6 +1,6 @@
 import socket
-from nio import reactor
-from nio.utils import get_subclasses
+from snet.utils import get_subclasses
+from snet.nio import reactor
 
 
 class UnknownTransport(Exception):
