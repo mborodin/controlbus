@@ -1,8 +1,11 @@
-from . import BaseProtocol
-from ..utils import flatten
+from queue import Queue
 from builtins import staticmethod
 import struct
 from io import BytesIO
+
+from . import BaseProtocol
+from .. import transport
+from utils import LeasedRoundRobin, get_subclasses
 
 
 _CONNECT = 1
@@ -27,65 +30,18 @@ _CONNACK_REFUSED_SERVER_UNAVAILABLE = 3
 _CONNACK_REFUSED_BAD_USERNAME_OR_PASSWORD = 4
 _CONNACK_REFUSED_NOT_AUTHORIZED = 5
 
+_CONNACK_STRERR = {
+    _CONNACK_REFUSED_PROTOCOL_VERSION: 'Invalid protocol version',
+    _CONNACK_REFUSED_IDENTIFIER_REJECTED: 'Client ID rejected',
+    _CONNACK_REFUSED_SERVER_UNAVAILABLE: 'Server unavailable',
+    _CONNACK_REFUSED_BAD_USERNAME_OR_PASSWORD: 'Bad username or password',
+    _CONNACK_REFUSED_NOT_AUTHORIZED: 'Not authorized'
+}
 
-class InvalidMessageIdException(Exception): pass
 
+class InvalidMessageIdException(Exception):
+    pass
 
-#def _find_all(s, ss):
-#    idx = s.find(ss)
-#    while idx != -1:
-#        yield idx
-#        idx = s.find(ss, idx+1)
-#
-#
-#def _marshal_string(str):
-#    pass
-#
-#
-#def _tuple_fmt(tup, fmt):
-#    newfmt = fmt[1:]
-#    strings = [i for i in range(len(tup)) if isinstance(tup[i], str)]
-#    if len(strings) > 0:
-#        newfmt = newfmt.replace('s', 'H%is') % tuple([len(tup[i]) for i in strings])
-#    return struct.pack(newfmt, tup)
-#
-#
-#def _marshal_list(list, fmt):
-#    pass
-#
-#
-#def _marshal_value(val, fmt):
-#    """
-#    @param val:
-#    @param fmt:
-#     @type fmt str
-#    @return:
-#    """
-#    if fmt == 's':
-#        strlen = len(val)
-#        buf = struct.pack('!H', strlen)
-#        if strlen == 0:
-#            continue
-#        fmt = '%is' % strlen
-#        buf += struct.pack(fmt, val.encode('ascii', 'replace'))
-#        return buf
-#    elif fmt.startswith('l'):
-#        for v in val:
-#            buf +=
-#    elif fmt.startswith('t'):
-#        newfmt = fmt[1:]
-#        strings = [i for i in range(len(val)) if isinstance(val[i], str)]
-#        if len(strings) > 0:
-#            newfmt = newfmt.replace('s', 'H%is') % tuple([len(val[i]) for i in strings])
-#            newval = list(val)
-#            for i in strings:
-#                newval.insert(i, len(val[i]))
-#            newval = tuple(newval)
-#        buf = struct.pack(newfmt, *newval)
-#    else:
-#        buf = struct.pack('!' + fmt, val)
-#
-#    return buf
 
 def _marshal_string(val):
     strlen = len(val)
@@ -247,9 +203,15 @@ class _MQTTConnect(_MQTTMessage):
         self.flags |= _MQTTConnect._USERNAME_BIT
         self.username = username
 
+    def get_username(self):
+        return None if self.flags & _MQTTConnect._USERNAME_BIT else self.username
+
     def set_password(self, password):
-        self.flags |= 64
+        self.flags |= _MQTTConnect._PASSWORD_BIT
         self.password = password
+
+    def get_password(self):
+        return None if self.flags & _MQTTConnect._PASSWORD_BIT else self.password
 
     def set_keepalive(self, keepalive):
         """
@@ -275,6 +237,9 @@ class _MQTTConnect(_MQTTMessage):
         """
         self.keepalive = keepalive
 
+    def get_keepalive(self):
+        return self.keepalive
+
     def will_qos(self, qos):
         """
         A connecting client specifies the QoS level in the Will QoS field for a Will message that is
@@ -287,6 +252,9 @@ class _MQTTConnect(_MQTTMessage):
         """
         self.flags |= (qos & 3) << _MQTTConnect._WILL_QOS
 
+    def get_will_qos(self):
+        return (self.flags >> _MQTTConnect._WILL_QOS) & 0x3
+
     def will_retain(self):
         """
         The Will Retain flag indicates whether the server should retain the Will message which is
@@ -294,6 +262,9 @@ class _MQTTConnect(_MQTTMessage):
         disconnected unexpectedly.
         """
         self.flags |= _MQTTConnect._WILL_RETAIN_BIT
+
+    def get_will_retain(self):
+        return self.flags & _MQTTConnect._WILL_RETAIN_BIT != 0
 
     def will_message(self, topic, msg):
         """
@@ -312,6 +283,9 @@ class _MQTTConnect(_MQTTMessage):
         self.message = msg
         self.topic = topic
 
+    def get_will_message(self):
+        return None if self.flags & _MQTTConnect._WILL_FLAG_BIT else (self.topic, self.message)
+
     def clean_session(self):
         """
         If not set (0), then the server must store the subscriptions of the client after it
@@ -324,6 +298,9 @@ class _MQTTConnect(_MQTTMessage):
         the client disconnects.
         """
         self.flags |= _MQTTConnect._CLEAN_SESSION_BIT
+
+    def is_clean_session(self):
+        return (self.flags & _MQTTConnect._CLEAN_SESSION_BIT) != 0
 
     def marshal(self):
         self.payload = (('id', 's'),)
@@ -357,22 +334,41 @@ class _MQTTConnAck(_MQTTMessage):
                        ('code', 'b'))
 
 
-class _MQTTPublish(_MQTTMessage):
-    def __init__(self, topic, qos, dup, mid=-1, retain=False):
-        super().__init__(_PUBLISH, qos, dup, retain)
-        self.topic = topic
-        self.id = mid
-        self.varheader = (('topic', 's'),)
+class _MQTTMessageWithID(_MQTTMessage):
+    def __init__(self, msgtype, qos=0, dup=False, retain=False):
+        super().__init__(msgtype, qos, dup, retain)
+        self.id = None
         if qos > 0:
-            if mid < 0:
-                raise InvalidMessageIdException
-            self.varheader += (('id', 'H'),)
+            self.varheader = (('id', 'H'),)
+
+    def want_id(self):
+        return self.qos > 0
+
+    def set_id(self, mid=None):
+        self.id = mid
+
+
+class _MQTTPublish(_MQTTMessageWithID):
+    def __init__(self, qos=0, dup=False, retain=False):
+        super().__init__(_PUBLISH, qos, dup, retain)
+        self.varheader = (('topic', 's'),) + self.varheader
 
         self.message = b''
+        self.topic = None
+
+    def set_topic(self, topic):
+        self.topic = topic
+
+    def get_topic(self):
+        return self.topic
 
     def set_message(self, message):
-        self.payload = (('message', 'p'))
-        self.message = message
+        if not message is None or message != b'':
+            self.payload = (('message', 'p'))
+            self.message = message
+
+    def get_message(self):
+        return self.message
 
     def unmarshal(self, buf):
         super().unmarshal(buf)
@@ -381,40 +377,30 @@ class _MQTTPublish(_MQTTMessage):
             self.unmarshal_fields(self.payload, buf)
 
 
-class _MQTTPubAck(_MQTTMessage):
-    def __init__(self, mid=None):
+class _MQTTPubAck(_MQTTMessageWithID):
+    def __init__(self):
         super().__init__(_PUBACK)
-        self.id = mid
-        self.varheader = (('mid', 'H'),)
 
 
 class _MQTTPubRec(_MQTTMessage):
-    def __init__(self, mid=None):
+    def __init__(self):
         super().__init__(_PUBREC)
-        self.id = mid
-        self.varheader = (('mid', 'H'),)
 
 
-class _MQTTPubRel(_MQTTMessage):
-    def __init__(self, mid=None, qos=0, dup=False):
+class _MQTTPubRel(_MQTTMessageWithID):
+    def __init__(self, qos=0, dup=False):
         super().__init__(_PUBREL, qos, dup)
-        self.id = mid
-        self.varheader = (('mid', 'H'),)
 
 
-class _MQTTPubComp(_MQTTMessage):
-    def __init__(self, mid):
+class _MQTTPubComp(_MQTTMessageWithID):
+    def __init__(self):
         super().__init__(_PUBCOMP)
-        self.varheader = (('mid', 'H'),)
-        self.id = mid
 
 
-class _MQTTSubscribe(_MQTTMessage):
-    def __init__(self, mid=None, qos=0, dup=False):
+class _MQTTSubscribe(_MQTTMessageWithID):
+    def __init__(self, qos=0, dup=False):
         super().__init__(_SUBSCRIBE, qos, dup)
-        self.mid = mid
         self.topics = []
-        self.varheader = (('mid', 'H'),)
 
     def marshal(self):
         buf = super().marshal()
@@ -434,11 +420,9 @@ class _MQTTSubscribe(_MQTTMessage):
         self.topics.append((topic, qos))
 
 
-class _MQTTSubAck(_MQTTMessage):
-    def __init__(self, mid):
+class _MQTTSubAck(_MQTTMessageWithID):
+    def __init__(self):
         super().__init__(_SUBACK)
-        self.varheader = (('mid', 'H'),)
-        self.id = mid
         self.qoses = []
 
     def add(self, qos):
@@ -457,12 +441,10 @@ class _MQTTSubAck(_MQTTMessage):
             self.add_topic(qos)
 
 
-class _MQTTUnsubscribe(_MQTTMessage):
-    def __init__(self, mid=None, qos=0, dup=False):
+class _MQTTUnsubscribe(_MQTTMessageWithID):
+    def __init__(self, qos=0, dup=False):
         super().__init__(_UNSUBSCRIBE, qos, dup)
-        self.mid = mid
         self.topics = []
-        self.varheader = (('mid', 'H'),)
 
     def marshal(self):
         buf = super().marshal()
@@ -480,11 +462,9 @@ class _MQTTUnsubscribe(_MQTTMessage):
         self.topics.append(topic)
 
 
-class _MQTTUnsubAck(_MQTTMessage):
-    def __init__(self, mid):
+class _MQTTUnsubAck(_MQTTMessageWithID):
+    def __init__(self):
         super().__init__(_UNSUBACK)
-        self.varheader = (('mid', 'H'),)
-        self.id = mid
 
 
 class _MQTTPingReq(_MQTTMessage):
@@ -502,40 +482,337 @@ class _MQTTDisconnect(_MQTTMessage):
         super().__init__(_DISCONNECT)
 
 
+class _MQTTFlow:
+    messages = []
+    qos = [0, 1, 2]
+
+    @staticmethod
+    def get(message):
+        """
+        @type message _MQTTMessage
+        @param message:
+        @return:
+        """
+        cls = [i for i in get_subclasses(_MQTTFlow) if
+               not (not (message.header.type in i.messages) or not (message.header.qos in i.qos))][0]
+        return cls(message)
+
+    def __init__(self, message):
+        self.message = message
+
+    def has_next(self):
+        pass
+
+    def next(self):
+        pass
+
+    def process(self, protocol=None, handler=None):
+        pass
+
+
+class _MQTTSimplePublishFlow(_MQTTFlow):
+    messages = [_PUBLISH]
+    qos = [0]
+
+    def __init__(self, message):
+        super().__init__(message)
+
+    def has_next(self):
+        return False
+
+    def process(self, protocol=None, handler=None):
+        handler.publish(protocol.iid, self.message.get_topic(), self.message.get_message())
+
+
+class _MQTTAtLeastOncePublishFlow(_MQTTFlow):
+    messages = [_PUBLISH, _PUBACK]
+    qos = [1]
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.rmessage = None
+
+    def process(self, protocol=None, handler=None):
+        super().process(protocol, handler)
+
+    def has_next(self):
+        super().has_next()
+
+    def next(self):
+        return self.rmessage
+
+
+class _MQTTAtMostDeliveryPublishFlow(_MQTTFlow):
+    messages = [_PUBLISH, _PUBREC, _PUBREL]
+    qos = [2]
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.rmessage = None
+
+    def process(self, protocol=None, handler=None):
+        super().process(protocol, handler)
+
+    def has_next(self):
+        return self.message.type == _PUBLISH or self.message.type == _PUBREC
+
+    def next(self):
+        return self.rmessage
+
+
+class _MQTTSubscribeFlow(_MQTTFlow):
+    messages = [_SUBSCRIBE, _SUBACK]
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.rmessage = None
+
+    def process(self, protocol=None, handler=None):
+        super().process(protocol, handler)
+
+    def has_next(self):
+        return self.message.type == _SUBSCRIBE
+
+    def next(self):
+        return self.rmessage
+
+
+class _MQTTConnectFlow(_MQTTFlow):
+    messages = [_CONNECT, _CONNACK]
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.rmessage = None
+
+    def process(self, protocol=None, handler=None):
+        message = self.messgae
+        mtype = message.header.type
+        if mtype == _CONNECT:
+            rmessage = _MQTTConnAck(_CONNACK_REFUSED_PROTOCOL_VERSION)
+            if message.version == 3:
+                iid = message.id
+                protocol.iid = iid
+                user = message.get_username()
+                password = message.get_password()
+                is_clean = message.is_clean_session()
+                post_mortem = message.get_will_message() + (message.get_will_qos(), message.get_will_retain())
+                protocol.connected = handler.connect(iid, user, password, is_clean, post_mortem)
+                if not self.connected:
+                    rmessage.code = _CONNACK_REFUSED_BAD_USERNAME_OR_PASSWORD
+                else:
+                    rmessage.code = _CONNACK_ACCEPTED
+        elif mtype == _CONNACK:
+            if message.code == _CONNACK_ACCEPTED:
+                protocol.connected = True
+            else:
+                handler.error((message.code, _CONNACK_STRERR[message.code]))
+
+    def has_next(self):
+        return self.message.type == _CONNECT
+
+    def next(self):
+        return self.rmessage
+
+
+class _MQTTDisconnectFlow(_MQTTFlow):
+    messages = [_DISCONNECT]
+
+    def __init__(self, message):
+        super().__init__(message)
+
+    def process(self, protocol=None, handler=None):
+        handler.disconnect(protocol.iid)
+
+    def has_next(self):
+        return False
+
+
+class _MQTTUnsubscribeFlow(_MQTTFlow):
+    messages = [_UNSUBSCRIBE, _UNSUBACK]
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.rmessage = None
+
+    def process(self, protocol=None, handler=None):
+        super().process(protocol, handler)
+
+    def has_next(self):
+        return self.message.type == _UNSUBSCRIBE
+
+    def next(self):
+        return self.rmessage
+
+
+class _MQTTPingFlow(_MQTTFlow):
+    messages = [_PINGREQ, _PINGRESP]
+
+    def __init__(self, message):
+        super().__init__(message)
+        self.rmessage = None
+
+    def process(self, protocol=None, handler=None):
+        super().process(protocol, handler)
+
+    def has_next(self):
+        return self.message.type == _PINGREQ
+
+    def next(self):
+        return self.rmessage
+
+
+class MQTTEventHandler:
+    def connect(self, client_id, user, password, is_clean, post_mortem):
+        pass
+
+    def publish(self, client_id, topic, message):
+        pass
+
+    def subscribe(self, client_id, topic, message):
+        pass
+
+    def unsubscribe(self, client_id, topic):
+        pass
+
+    def disconnect(self, client_id):
+        pass
+
+    def connection_closed(self, client_id):
+        pass
+
+    def error(self, client_id, err):
+        pass
+
+
 class MQTTProtocol(BaseProtocol):
     def set_qos_level(self, level=None):
         self.qos = 0 if level is None else level
 
-    def connection_made(self, transport):
-        super().connection_made(transport)
+    def connection_made(self, t):
+        client = MQTTProtocol()
+        client.transport = t
+        t.data_handler = client
+        self.clients.append(client)
 
-    def __init__(self):
+    def __init__(self, addr=None, port=None, handler=None, iid=None, proto='tcp'):
         super().__init__()
         self.qos = 0
+        self.handler = handler
+        self.iid = iid
+        if not addr is None:
+            self.transport = transport.get(proto, addr, port, self)
+        else:
+            self.transport = None
+        self.clients = []
+        self.is_server = False
+        self.drop = False
+        self.output = Queue()
+        self.connected = False
+        self.message_id_generator = LeasedRoundRobin(range(0, 0xFFFF))
+        self.processing = {}
+        self.held = {}
+        self.ping_sent = False
+        self.keepalive = None
+
+    def set_keepalive(self, keepalive):
+        self.keepalive = keepalive
+
+    def close_client(self, cid):
+        idx = self.clients.index(cid)
+        client = self.clients.pop(idx)
+        client.transport.close()
 
     def get_qos_level(self):
         return self.qos
 
     def has_output(self):
-        super().has_output()
+        return not self.output.empty() and not self.drop
 
     def connection_exception(self, exc):
-        super().connection_exception(exc)
+        self.handler.error(self.iid, exc)
 
     def receive(self, data):
-        super().receive(data)
+        if not self.drop:
+            message = _MQTTMessage.unmarshal(data)
+            mtype = message.header.type
+            if mtype == _PUBLISH:
+                pass
+            elif mtype == _PUBACK:
+                pass
+            elif mtype == _PUBREC:
+                pass
+            elif mtype == _PUBREL:
+                pass
+            elif mtype == _PUBCOMP:
+                pass
+            elif mtype == _SUBSCRIBE:
+                pass
+            elif mtype == _SUBACK:
+                pass
+            elif mtype == _UNSUBSCRIBE:
+                pass
+            elif mtype == _UNSUBACK:
+                pass
+            elif mtype == _PINGREQ:
+                message = _MQTTPingResp()
+                self.put(message)
+            elif mtype == _PINGRESP:
+                pass
 
     def get_output(self):
-        super().get_output()
+        message = self.output.get()
+        self.output.task_done()
+        return message.marshal()
 
     def open(self, is_server=False):
-        super().open(is_server)
+        self.is_server = is_server
+        if not is_server:
+            pass
+        else:
+            self.transport.listen()
 
     def close(self):
-        super().close()
+        if not self.is_server:
+            self.drop = True
+            with self.output.mutex:
+                self.output.queue.clear()
+            message = _MQTTDisconnect()
+            self.output.put(message)
+            self.output.join()
+        else:
+            for client in self.clients:
+                client.transport.close()
+        self.transport.close()
 
     def connection_closed(self):
-        super().connection_closed()
+        self.handler.connection_closed(self.iid)
 
-    def send(self, data):
-        super().send(data)
+    def send(self, message):
+        if self.connected and not self.drop:
+            self.output.put(message)
+
+    def subscribe(self, topics, qos=None):
+        message = _MQTTSubscribe(qos=qos)
+        map(message.add_topic, topics)
+        self.send(message)
+
+    def publish(self, topic, data, qos=None):
+        message = _MQTTPublish(qos=qos)
+        message.set_topic(topic)
+        message.set_message(data)
+        self.send(message)
+
+    def unsubscribe(self, topics, qos=None):
+        message = _MQTTUnsubscribe(qos=qos)
+        map(message.add_topic, topics)
+        self.send(message)
+
+    def ping(self):
+        if not self.ping_sent:
+            pass
+
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self.iid == other
+        if isinstance(other, MQTTProtocol):
+            return self.iid == other.iid
