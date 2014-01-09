@@ -1,4 +1,5 @@
 from .timer import Timer
+from . import watchdog
 
 try:
     from queue import Queue
@@ -6,6 +7,7 @@ except ImportError:
     from Queue import Queue
 
 make_pep8_happy = Timer
+make_pep8_happy = watchdog
 
 
 def get_subclasses(cls):
