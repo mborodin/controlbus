@@ -1,4 +1,9 @@
+from .timer import Timer
+
 from queue import Queue
+
+make_pep8_happy = Timer
+
 
 def get_subclasses(cls):
     subclasses = cls.__subclasses__()
