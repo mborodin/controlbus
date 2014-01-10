@@ -103,7 +103,7 @@ class _MQTTHeader:
         return _MQTTHeader(msgtype, length, qos, dup, retain)
 
 
-class _MQTTMessage:
+class _MQTTMessage(object):
     def __init__(self, msgtype, qos=0, dup=False, retain=False):
         self.header = _MQTTHeader(msgtype, 0, qos, dup, retain)
         self.varheader = ()
@@ -179,7 +179,7 @@ class _MQTTConnect(_MQTTMessage):
     _CLEAN_SESSION_BIT = 2
 
     def __init__(self, cid=None):
-        super().__init__(_CONNECT)
+        super(_MQTTConnect, self).__init__(_CONNECT)
         self.magic = 'MQIsdp'
         self.version = 3
         self.flags = 0
@@ -311,10 +311,10 @@ class _MQTTConnect(_MQTTMessage):
             self.payload += (('username', 's'),)
         if self.flags & _MQTTConnect._PASSWORD_BIT != 0:
             self.payload += (('password', 's'),)
-        return super().marshal()
+        return super(_MQTTConnect, self).marshal()
 
     def unmarshal(self, buf):
-        super().unmarshal(buf)
+        super(_MQTTConnect, self).unmarshal(buf)
         self.payload = (('id', 's'),)
         if self.flags & _MQTTConnect._WILL_FLAG_BIT != 0:
             self.payload += (('topic', 's'), ('message', 's'),)
@@ -328,7 +328,7 @@ class _MQTTConnect(_MQTTMessage):
 
 class _MQTTConnAck(_MQTTMessage):
     def __init__(self, code=None):
-        super().__init__(_CONNACK)
+        super(_MQTTConnAck, self).__init__(_CONNACK)
         self.reserved = 0
         self.code = code
         self.varheader = (('reserved', 'B'),
@@ -337,7 +337,7 @@ class _MQTTConnAck(_MQTTMessage):
 
 class _MQTTMessageWithID(_MQTTMessage):
     def __init__(self, msgtype, qos=0, dup=False, retain=False):
-        super().__init__(msgtype, qos, dup, retain)
+        super(_MQTTMessageWithID, self).__init__(msgtype, qos, dup, retain)
         self.id = None
         if qos > 0 or msgtype == _SUBSCRIBE or msgtype == _SUBACK:
             self.varheader = (('id', 'H'),)
@@ -345,7 +345,7 @@ class _MQTTMessageWithID(_MQTTMessage):
     def unmarshal(self, buf):
         if self.header.qos > 0 or self.header.type == _SUBSCRIBE or self.header.type == _SUBACK:
             self.varheader = (('id', 'H'),)
-        super().unmarshal(buf)
+        super(_MQTTMessageWithID, self).unmarshal(buf)
 
     def want_id(self):
         return self.qos > 0
@@ -356,7 +356,7 @@ class _MQTTMessageWithID(_MQTTMessage):
 
 class _MQTTPublish(_MQTTMessageWithID):
     def __init__(self, qos=0, dup=False, retain=False):
-        super().__init__(_PUBLISH, qos, dup, retain)
+        super(_MQTTPublish, self).__init__(_PUBLISH, qos, dup, retain)
         self.varheader = (('topic', 's'),) + self.varheader
 
         self.message = b''
@@ -377,7 +377,7 @@ class _MQTTPublish(_MQTTMessageWithID):
         return self.message
 
     def unmarshal(self, buf):
-        super().unmarshal(buf)
+        super(_MQTTPublish, self).unmarshal(buf)
         if self.header.length - buf.tell() > 0:
             self.payload = (('message', 'p'))
             self.unmarshal_fields(self.payload, buf)
@@ -385,27 +385,27 @@ class _MQTTPublish(_MQTTMessageWithID):
 
 class _MQTTPubAck(_MQTTMessageWithID):
     def __init__(self):
-        super().__init__(_PUBACK)
+        super(_MQTTPubAck, self).__init__(_PUBACK)
 
 
-class _MQTTPubRec(_MQTTMessage):
+class _MQTTPubRec(_MQTTMessageWithID):
     def __init__(self):
-        super().__init__(_PUBREC)
+        super(_MQTTPubRec, self).__init__(_PUBREC)
 
 
 class _MQTTPubRel(_MQTTMessageWithID):
     def __init__(self, qos=0, dup=False):
-        super().__init__(_PUBREL, qos, dup)
+        super(_MQTTPubRel, self).__init__(_PUBREL, qos, dup)
 
 
 class _MQTTPubComp(_MQTTMessageWithID):
     def __init__(self):
-        super().__init__(_PUBCOMP)
+        super(_MQTTPubComp, self).__init__(_PUBCOMP)
 
 
 class _MQTTSubscribe(_MQTTMessageWithID):
     def __init__(self, qos=0, dup=False):
-        super().__init__(_SUBSCRIBE, qos, dup)
+        super(_MQTTSubscribe, self).__init__(_SUBSCRIBE, qos, dup)
         self.topics = []
 
     def marshal(self):
@@ -415,10 +415,10 @@ class _MQTTSubscribe(_MQTTMessageWithID):
             setattr(self, topicf, topic)
             setattr(self, qosf, qos)
             self.payload += ((topicf, 's'), (qosf, 'B'),)
-        return super().marshal()
+        return super(_MQTTSubscribe, self).marshal()
 
     def unmarshal(self, buf):
-        super().unmarshal(buf)
+        super(_MQTTSubscribe, self).unmarshal(buf)
         while self.header.length - buf.tell() > 0:
             topic = _unmarshal_string(buf)
             qos = struct.unpack('B', buf.read(1))[0]
@@ -430,7 +430,7 @@ class _MQTTSubscribe(_MQTTMessageWithID):
 
 class _MQTTSubAck(_MQTTMessageWithID):
     def __init__(self):
-        super().__init__(_SUBACK)
+        super(_MQTTSubAck, self).__init__(_SUBACK)
         self.qoses = []
 
     def add(self, qos):
@@ -441,10 +441,10 @@ class _MQTTSubAck(_MQTTMessageWithID):
             qosf = 'qos%i' % tid
             setattr(self, qosf, qos)
             self.payload += ((qosf, 'B'),)
-        return super().marshal()
+        return super(_MQTTSubAck, self).marshal()
 
     def unmarshal(self, buf):
-        super().unmarshal(buf)
+        super(_MQTTSubAck, self).unmarshal(buf)
         for b in buf:
             qos = struct.unpack('B', b)[0]
             self.add(qos)
@@ -452,17 +452,17 @@ class _MQTTSubAck(_MQTTMessageWithID):
 
 class _MQTTUnsubscribe(_MQTTMessageWithID):
     def __init__(self, qos=0, dup=False):
-        super().__init__(_UNSUBSCRIBE, qos, dup)
+        super(_MQTTUnsubscribe, self).__init__(_UNSUBSCRIBE, qos, dup)
         self.topics = []
 
     def marshal(self):
-        buf = super().marshal()
+        buf = super(_MQTTUnsubscribe, self).marshal()
         for topic in self.topics:
             buf += _marshal_string(topic)
         return buf
 
     def unmarshal(self, buf):
-        super().unmarshal(buf)
+        super(_MQTTUnsubscribe, self).unmarshal(buf)
         while self.header.length - buf.tell() > 0:
             self.add_topic(_unmarshal_string(buf))
 
@@ -472,25 +472,25 @@ class _MQTTUnsubscribe(_MQTTMessageWithID):
 
 class _MQTTUnsubAck(_MQTTMessageWithID):
     def __init__(self):
-        super().__init__(_UNSUBACK)
+        super(_MQTTUnsubAck, self).__init__(_UNSUBACK)
 
 
 class _MQTTPingReq(_MQTTMessage):
     def __init__(self):
-        super().__init__(_PINGREQ)
+        super(_MQTTPingReq, self).__init__(_PINGREQ)
 
 
 class _MQTTPingResp(_MQTTMessage):
     def __init__(self):
-        super().__init__(_PINGRESP)
+        super(_MQTTPingResp, self).__init__(_PINGRESP)
 
 
 class _MQTTDisconnect(_MQTTMessage):
     def __init__(self):
-        super().__init__(_DISCONNECT)
+        super(_MQTTDisconnect, self).__init__(_DISCONNECT)
 
 
-class _MQTTFlow:
+class _MQTTFlow(object):
     messages = []
     qos = [0, 1, 2]
 
@@ -523,7 +523,7 @@ class _MQTTSimplePublishFlow(_MQTTFlow):
     qos = [0]
 
     def __init__(self, message):
-        super().__init__(message)
+        super(_MQTTSimplePublishFlow, self).__init__(message)
 
     def has_next(self):
         return False
@@ -537,7 +537,7 @@ class _MQTTAtLeastOncePublishFlow(_MQTTFlow):
     qos = [1]
 
     def __init__(self, message):
-        super().__init__(message)
+        super(_MQTTAtLeastOncePublishFlow, self).__init__(message)
         self.rmessage = None
 
     def process(self, protocol=None, handler=None):
@@ -566,7 +566,7 @@ class _MQTTAtMostDeliveryPublishFlow(_MQTTFlow):
     qos = [2]
 
     def __init__(self, message):
-        super().__init__(message)
+        super(_MQTTAtMostDeliveryPublishFlow, self).__init__(message)
         self.rmessage = None
 
     def process(self, protocol=None, handler=None):
@@ -599,7 +599,7 @@ class _MQTTSubscribeFlow(_MQTTFlow):
     messages = [_SUBSCRIBE, _SUBACK]
 
     def __init__(self, message):
-        super().__init__(message)
+        super(_MQTTSubscribeFlow, self).__init__(message)
         self.rmessage = None
 
     def process(self, protocol=None, handler=None):
@@ -628,7 +628,7 @@ class _MQTTConnectFlow(_MQTTFlow):
     messages = [_CONNECT, _CONNACK]
 
     def __init__(self, message):
-        super().__init__(message)
+        super(_MQTTConnectFlow, self).__init__(message)
         self.rmessage = None
 
     def process(self, protocol=None, handler=None):
@@ -668,7 +668,7 @@ class _MQTTDisconnectFlow(_MQTTFlow):
     messages = [_DISCONNECT]
 
     def __init__(self, message):
-        super().__init__(message)
+        super(_MQTTDisconnectFlow, self).__init__(message)
 
     def process(self, protocol=None, handler=None):
         handler.disconnect(protocol.iid)
@@ -681,7 +681,7 @@ class _MQTTUnsubscribeFlow(_MQTTFlow):
     messages = [_UNSUBSCRIBE, _UNSUBACK]
 
     def __init__(self, message):
-        super().__init__(message)
+        super(_MQTTUnsubscribeFlow, self).__init__(message)
         self.rmessage = None
 
     def process(self, protocol=None, handler=None):
@@ -709,7 +709,7 @@ class _MQTTPingFlow(_MQTTFlow):
     messages = [_PINGREQ, _PINGRESP]
 
     def __init__(self, message):
-        super().__init__(message)
+        super(_MQTTPingFlow, self).__init__(message)
         self.rmessage = None
 
     def process(self, protocol=None, handler=None):
@@ -727,7 +727,7 @@ class _MQTTPingFlow(_MQTTFlow):
         return self.rmessage
 
 
-class MQTTEventHandler:
+class MQTTEventHandler(object):
     def connect(self, client_id, user, password, is_clean, post_mortem):
         pass
 
@@ -764,7 +764,6 @@ class MQTTProtocol(BaseProtocol):
         self.clients.append(client)
 
     def __init__(self, addr=None, port=None, handler=None, iid=None, proto='tcp'):
-        super().__init__()
         self.qos = 0
         self.handler = handler
         self.iid = iid
