@@ -465,7 +465,10 @@ class _MQTTSubAck(_MQTTMessageWithID):
 
     def unmarshal(self, buf):
         super(_MQTTSubAck, self).unmarshal(buf)
-        for b in buf:
+        while buf.readable():
+            b = buf.read(1)
+            if b == b'':
+                break
             qos = struct.unpack('B', b)[0]
             self.add(qos)
 
