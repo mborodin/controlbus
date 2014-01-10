@@ -832,7 +832,7 @@ class MQTTProtocol(BaseProtocol):
             if flow.has_next():
                 self.send(flow.next())
             elif isinstance(message, _MQTTMessageWithID):  # aka has_next = False && instance_check
-                mid = message.mid
+                mid = message.id
                 self.message_id_generator.release(mid)
 
     def get_output(self):
