@@ -641,7 +641,7 @@ class _MQTTSubscribeFlow(_MQTTFlow):
             protocol.processing.pop(self.message.id)
 
     def has_next(self):
-        return self.header.message.qos > 0 and self.message.header.type == _SUBSCRIBE
+        return self.message.header.qos > 0 and self.message.header.type == _SUBSCRIBE
 
     def next(self):
         return self.rmessage
