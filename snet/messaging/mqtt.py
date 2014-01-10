@@ -63,6 +63,19 @@ def _unmarshal_string(buf):
     return struct.unpack(fmt, buf.read(strlen))[0].decode('UTF-8')
 
 
+def _marshal_data(val):
+    blen = len(val)
+    if blen == 0:
+        return b''
+    fmt = '%ip' % blen
+    buf = struct.pack(fmt, val)
+    return buf
+
+
+def _unmarshal_data(buf):
+    return struct.unpack('p', buf.read())[0]
+
+
 class _MQTTHeader:
     def __init__(self, msgtype, length=0, qos=0, dup=False, retain=False):
         self.type = msgtype
@@ -121,6 +134,8 @@ class _MQTTMessage(object):
             val = self.__dict__[field]
             if ftype == 's':
                 buf += _marshal_string(val)
+            elif ftype == 'p':
+                buf += val
             else:
                 buf += struct.pack('!' + ftype, val)
         return buf
@@ -130,6 +145,9 @@ class _MQTTMessage(object):
             if ftype == 's':
                 self.__dict__[field] = _unmarshal_string(buf)
                 continue
+            elif ftype == 'p':
+                self.__dict__[field] = buf.read()
+                break  # pointer type consumes all available data
             bsc = struct.calcsize(ftype)
             self.__dict__[field] = struct.unpack('!' + ftype, buf.read(bsc))[0]
 
@@ -344,7 +362,9 @@ class _MQTTMessageWithID(_MQTTMessage):
 
     def unmarshal(self, buf):
         if self.header.qos > 0 or self.header.type == _SUBSCRIBE or self.header.type == _SUBACK:
-            self.varheader = (('id', 'H'),)
+            t = ('id', 'H')
+            if not t in self.varheader:
+                self.varheader += (t,)
         super(_MQTTMessageWithID, self).unmarshal(buf)
 
     def want_id(self):
@@ -370,7 +390,7 @@ class _MQTTPublish(_MQTTMessageWithID):
 
     def set_message(self, message):
         if not message is None or message != b'':
-            self.payload = (('message', 'p'))
+            self.payload = (('message', 'p'),)
             self.message = message
 
     def get_message(self):
@@ -378,8 +398,8 @@ class _MQTTPublish(_MQTTMessageWithID):
 
     def unmarshal(self, buf):
         super(_MQTTPublish, self).unmarshal(buf)
-        if self.header.length - buf.tell() > 0:
-            self.payload = (('message', 'p'))
+        if buf.readable() > 0:
+            self.payload = (('message', 'p'),)
             self.unmarshal_fields(self.payload, buf)
 
 
