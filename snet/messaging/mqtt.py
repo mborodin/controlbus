@@ -887,9 +887,8 @@ class MQTTProtocol(BaseProtocol):
         for topic in topics:
             message.add_topic(topic[0], topic[1])
         self.send(message)
-        if qos > 0:
-            self.processing[message.id] = message
-            watchdog.add(message.id, self.retry_timeout, self.resend)
+        self.processing[message.id] = message
+        watchdog.add(message.id, self.retry_timeout, self.resend)
 
     def publish(self, topic, data, qos=None):
         message = _MQTTPublish(qos=qos)
