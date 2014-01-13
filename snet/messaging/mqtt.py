@@ -187,8 +187,10 @@ class _MQTTMessage(object):
              _MQTTDisconnect]
         message = m[header.type]()
         message.header = header
-        message.unmarshal(bufio)
-        return message
+        msgbuf = BytesIO(bufio.read(header.length))
+        message.unmarshal(msgbuf)
+        remaining = bufio.read()
+        return message, remaining
 
 
 class _MQTTConnect(_MQTTMessage):
@@ -832,16 +834,18 @@ class MQTTProtocol(BaseProtocol):
 
     def receive(self, data):
         if not self.drop:
-            message = _MQTTMessage.unmarshal_message(data)
-            flow = _MQTTFlow.get(message)
-            flow.process(self, self.handler)
-            if self.is_server:
-                watchdog.touch(self.iid)
-            if flow.has_next():
-                self.send(flow.next())
-            elif isinstance(message, _MQTTMessageWithID):  # aka has_next = False && instance_check
-                mid = message.id
-                self.message_id_generator.release(mid)
+            while data != b'':
+                (message, remaining) = _MQTTMessage.unmarshal_message(data)
+                flow = _MQTTFlow.get(message)
+                flow.process(self, self.handler)
+                if self.is_server:
+                    watchdog.touch(self.iid)
+                if flow.has_next():
+                    self.send(flow.next())
+                elif isinstance(message, _MQTTMessageWithID):  # aka has_next = False && instance_check
+                    mid = message.id
+                    self.message_id_generator.release(mid)
+                data = remaining
 
     def get_output(self):
         message = self.output.get()
