@@ -32,7 +32,7 @@ def get(name, *args, **kwargs):
     return transports[name](*args, **kwargs)
 
 
-class Transport:
+class Transport(object):
     name = ''
 
     def __init__(self, data_handler):
@@ -80,7 +80,7 @@ class TCPTransport(Transport):
     name = 'tcp'
 
     def __init__(self, host, port, data_handler):
-        super().__init__(data_handler)
+        super(TCPTransport, self).__init__(data_handler)
         self.host = host
         self.port = port
         self.sock = None
