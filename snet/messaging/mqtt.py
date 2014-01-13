@@ -89,12 +89,15 @@ class _MQTTHeader:
         header = (self.type << 4) | (8 if self.dup else 0) | ((0x3 & self.qos) << 1) | (1 if self.retain else 0)
         packed += struct.pack('B', header)  # bytes(chr(header), 'ascii')
         length = self.length
-        while length > 0:
-            digit = length % 128
-            length >>= 7
-            if length > 0:
-                digit |= 0x80
-            packed += struct.pack('B', digit)  # bytes(chr(digit), 'ascii')
+        if length == 0:
+            packed += b'\x00'
+        else:
+            while length > 0:
+                digit = length % 128
+                length >>= 7
+                if length > 0:
+                    digit |= 0x80
+                packed += struct.pack('B', digit)  # bytes(chr(digit), 'ascii')
 
         return packed
 
@@ -843,7 +846,7 @@ class MQTTProtocol(BaseProtocol):
     def open(self, is_server=False):
         self.is_server = is_server
         if not is_server:
-            watchdog.add(self.iid, self.keepalive, self.request_ping, 0.5)
+            watchdog.add(self.iid, self.keepalive, self.request_ping, 0.1)
             message = _MQTTConnect(self.iid)
             message.set_keepalive(self.keepalive)
             self.output.put(message)
@@ -874,7 +877,7 @@ class MQTTProtocol(BaseProtocol):
     def send(self, message):
         if self.connected and not self.drop:
             if isinstance(message, _MQTTMessageWithID) and message.id is None:
-                id=self.message_id_generator.next()
+                id = self.message_id_generator.next()
                 message.set_id(id)
             self.output.put(message)
 
