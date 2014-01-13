@@ -795,7 +795,7 @@ class MQTTProtocol(BaseProtocol):
         t.data_handler = client
         self.clients.append(client)
 
-    def __init__(self, addr=None, port=None, handler=None, iid=None, keepalive=60, proto='tcp'):
+    def __init__(self, addr=None, port=None, handler=None, iid=None, want_clean = False, keepalive=60, proto='tcp'):
         self.qos = 0
         self.handler = handler
         self.iid = iid
@@ -814,6 +814,7 @@ class MQTTProtocol(BaseProtocol):
         self.ping_sent = False
         self.retry_timeout = 1.0
         self.keepalive = keepalive
+        self.want_clean = want_clean
 
     def set_retry_timeout(self, retry_timeout):
         self.retry_timeout = retry_timeout
@@ -858,6 +859,8 @@ class MQTTProtocol(BaseProtocol):
             watchdog.add(self.iid, self.keepalive, self.request_ping, 0.1)
             message = _MQTTConnect(self.iid)
             message.set_keepalive(self.keepalive)
+            if self.want_clean:
+                message.clean_session()
             self.output.put(message)
             self.transport.open()
         else:
