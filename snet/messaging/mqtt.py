@@ -817,7 +817,7 @@ class MQTTProtocol(BaseProtocol):
         return self.qos
 
     def has_output(self):
-        return not self.output.empty() and not self.drop
+        return not self.output.empty()
 
     def connection_exception(self, exc):
         self.handler.error(self.iid, exc)
