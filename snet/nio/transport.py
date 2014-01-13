@@ -94,6 +94,7 @@ class TCPTransport(Transport):
     def handle_close(self):
         reactor.remove_transport(self)
         self.sock.close()
+        self.sock = None
         self.data_handler.connection_closed()
 
     def handle_error(self):
@@ -138,14 +139,16 @@ class TCPTransport(Transport):
         self.data_handler.connection_made(transport)
 
     def handle_read(self):
-        data = self.sock.recv(8192)
-        if data:
-            self.data_handler.receive(data)
+        if not self.sock is None:
+            data = self.sock.recv(8192)
+            if data:
+                self.data_handler.receive(data)
 
     def handle_write(self):
-        if self.data_handler.has_output():
-            data = self.data_handler.get_output()
-            self.sock.send(data)
+        if not self.sock is None:
+            if self.data_handler.has_output():
+                data = self.data_handler.get_output()
+                self.sock.send(data)
 
     def is_writeable(self):
         return not self.server
