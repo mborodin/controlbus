@@ -59,18 +59,17 @@ def stop():
 
 
 def add_transport(t):
-    with _lock:
-        fd = t.fd()
-        socket_map[fd] = t
-        mask = select.EPOLLHUP | select.EPOLLERR
-        if t.is_readable():
-            mask |= select.EPOLLIN
-        if t.is_writeable():
-            mask |= select.EPOLLOUT
-        if t.is_listening():
-            mask = select.EPOLLIN | select.EPOLLET
+    fd = t.fd()
+    socket_map[fd] = t
+    mask = select.EPOLLHUP | select.EPOLLERR
+    if t.is_readable():
+        mask |= select.EPOLLIN
+    if t.is_writeable():
+        mask |= select.EPOLLOUT
+    if t.is_listening():
+        mask = select.EPOLLIN | select.EPOLLET
 
-        _epoll.register(fd, mask)
+    _epoll.register(fd, mask)
 
 
 def remove_transport(t):
