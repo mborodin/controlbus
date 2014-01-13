@@ -1,5 +1,6 @@
 import unittest
 from io import BytesIO
+import mock
 
 from snet.messaging import mqtt
 
@@ -14,7 +15,7 @@ _CONNACK_STRERR = mqtt._CONNACK_STRERR
 _CONNECT = mqtt._CONNECT
 _DISCONNECT = mqtt._DISCONNECT
 _MQTTAtLeastOncePublishFlow = mqtt._MQTTAtLeastOncePublishFlow
-_MQTTAtMostDeliveryPublishFlow = mqtt._MQTTAtMostDeliveryPublishFlow
+_MQTTExactlyDeliveryPublishFlow = mqtt._MQTTExactlyDeliveryPublishFlow
 _MQTTConnAck = mqtt._MQTTConnAck
 _MQTTConnect = mqtt._MQTTConnect
 _MQTTConnectFlow = mqtt._MQTTConnectFlow
@@ -53,26 +54,42 @@ _UNSUBSCRIBE = mqtt._UNSUBSCRIBE
 
 
 class test_MQTTHeader(unittest.TestCase):
+    def setUp(self):
+        self.msg_empty = b'\xc0\x00'
+        self.msg = b' \x02'
+        self.big_msg = b'4\x9b\x01'
+
+    def test_marshal_empty(self):
+        message = _MQTTPingReq()
+        bs = message.marshal()
+        self.assertEqual(bs, self.msg_empty)
+
+    def test_unmarshal_empty(self):
+        (message, remaining) = _MQTTMessage.unmarshal_message(self.msg_empty)
+        expected = _MQTTPingReq()
+
+        self.assertEqual(message.header.type, expected.header.type)
+
     def test_marshal_qos0(self):
         header = _MQTTHeader(_CONNACK, 2)
         bs = header.marshal()
-        expected = b' \x02'
+        expected = self.msg
         self.assertEqual(bs, expected)
 
     def test_marshal_qos4(self):
         header = _MQTTHeader(_CONNACK, 2, 4)  # QoS should be trimmed to 0-3 range, thus 4 == 0
         bs = header.marshal()
-        expected = b' \x02'
+        expected = self.msg
         self.assertEqual(bs, expected)
 
     def test_marshal_big_message(self):
         header = _MQTTHeader(_PUBLISH, 155, 2)
         bs = header.marshal()
-        expected = b'4\x9b\x01'
+        expected = self.big_msg
         self.assertEqual(bs, expected)
 
     def test_umarshal_qos0(self):
-        header = _MQTTHeader.unmarshal(BytesIO(b' \x02'))
+        header = _MQTTHeader.unmarshal(BytesIO(self.msg))
         expected = _MQTTHeader(_CONNACK, 2)
         self.assertEqual(header.type, expected.type)
         self.assertEqual(header.qos, expected.qos)
@@ -81,7 +98,7 @@ class test_MQTTHeader(unittest.TestCase):
         self.assertEqual(header.length, expected.length)
 
     def test_umarshal_big_message(self):
-        header = _MQTTHeader.unmarshal(BytesIO(b'4\x9b\x01'))
+        header = _MQTTHeader.unmarshal(BytesIO(self.big_msg))
         expected = _MQTTHeader(_PUBLISH, 155, 2)
         self.assertEqual(header.type, expected.type)
         self.assertEqual(header.qos, expected.qos)
@@ -142,14 +159,14 @@ class test_MQTTConnect(unittest.TestCase):
         self.assertEqual(bs, expected)
 
     def test_umarshal_clean(self):
-        message = _MQTTMessage.unmarshal_message(self.clean_message)
+        (message, remaining) = _MQTTMessage.unmarshal_message(self.clean_message)
         expected = _MQTTConnect(self.client_id)
         expected.set_keepalive(self.keepalive)
         expected.clean_session()
         self.compare_messages(expected, message)
 
     def test_umarshal_username_password(self):
-        message = _MQTTMessage.unmarshal_message(self.username_password_message)
+        (message, remaining) = _MQTTMessage.unmarshal_message(self.username_password_message)
         expected = _MQTTConnect(self.client_id)
         expected.set_keepalive(self.keepalive)
         expected.clean_session()
@@ -158,7 +175,7 @@ class test_MQTTConnect(unittest.TestCase):
         self.compare_messages(expected, message)
 
     def test_umarshal_username(self):
-        message = _MQTTMessage.unmarshal_message(self.username_message)
+        (message, remaining) = _MQTTMessage.unmarshal_message(self.username_message)
         expected = _MQTTConnect(self.client_id)
         expected.set_keepalive(self.keepalive)
         expected.clean_session()
@@ -181,7 +198,7 @@ class test_MQTTConnect(unittest.TestCase):
         self.assertEqual(message.id, expected.id)
 
     def test_umarshal_will(self):
-        message = _MQTTMessage.unmarshal_message(self.will_message)
+        (message, remaining) = _MQTTMessage.unmarshal_message(self.will_message)
         expected = _MQTTConnect(self.client_id)
         expected.set_keepalive(self.keepalive)
         expected.clean_session()
@@ -202,7 +219,7 @@ class test_MQTTConnAck(unittest.TestCase):
         self.assertEqual(bs, expected)
 
     def test_unmarshal(self):
-        message = _MQTTMessage.unmarshal_message(self.msg)
+        (message, remaining) = _MQTTMessage.unmarshal_message(self.msg)
         expected = _MQTTConnAck(self.code)
         self.assertEqual(message.code, expected.code)
 
@@ -253,7 +270,7 @@ class test_MQTTPublish(unittest.TestCase):
         self.assertEqual(bs, self.publish2_big)
 
     def test_unmarshal_qos0(self):
-        message = _MQTTMessage.unmarshal_message(self.publish0)
+        (message, remaining) = _MQTTMessage.unmarshal_message(self.publish0)
         expected = _MQTTPublish(qos=0)
         expected.set_id(self.id)
         expected.set_topic(self.topic)
@@ -261,7 +278,7 @@ class test_MQTTPublish(unittest.TestCase):
         self.compare_messages(message, expected)
 
     def test_unmarshal_qos1(self):
-        message = _MQTTMessage.unmarshal_message(self.publish1)
+        (message, remaining) = _MQTTMessage.unmarshal_message(self.publish1)
         expected = _MQTTPublish(qos=1)
         expected.set_id(self.id)
         expected.set_topic(self.topic)
@@ -269,7 +286,7 @@ class test_MQTTPublish(unittest.TestCase):
         self.compare_messages(message, expected)
 
     def test_unmarshal_qos2(self):
-        message = _MQTTMessage.unmarshal_message(self.publish2)
+        (message, remaining) = _MQTTMessage.unmarshal_message(self.publish2)
         expected = _MQTTPublish(qos=2)
         expected.set_id(self.id)
         expected.set_topic(self.topic)
@@ -277,7 +294,7 @@ class test_MQTTPublish(unittest.TestCase):
         self.compare_messages(message, expected)
 
     def test_unmarshal_qos2_big(self):
-        message = _MQTTMessage.unmarshal_message(self.publish2_big)
+        (message, remaining) = _MQTTMessage.unmarshal_message(self.publish2_big)
         expected = _MQTTPublish(qos=2)
         expected.set_id(self.id)
         expected.set_topic(self.topic)
@@ -294,30 +311,6 @@ class test_MQTTPublish(unittest.TestCase):
 
         self.assertEqual(actual.topic, expected.topic)
         self.assertEqual(actual.message, expected.message)
-
-
-class test_MQTTPubAck(unittest.TestCase):
-    def test___init__(self):
-        # __mqtt_pub_ack = _MQTTPubAck()
-        assert False
-
-
-class test_MQTTPubRec(unittest.TestCase):
-    def test___init__(self):
-        # __mqtt_pub_rec = _MQTTPubRec()
-        assert False
-
-
-class test_MQTTPubRel(unittest.TestCase):
-    def test___init__(self):
-        # __mqtt_pub_rel = _MQTTPubRel(qos, dup)
-        assert False
-
-
-class test_MQTTPubComp(unittest.TestCase):
-    def test___init__(self):
-        # __mqtt_pub_comp = _MQTTPubComp()
-        assert False
 
 
 class test_MQTTSubscribe(unittest.TestCase):
@@ -337,7 +330,7 @@ class test_MQTTSubscribe(unittest.TestCase):
         self.assertEqual(bs, expected)
 
     def test_unmarshal(self):
-        message = _MQTTMessage.unmarshal_message(self.msg)
+        (message, remaining) = _MQTTMessage.unmarshal_message(self.msg)
         expected = _MQTTSubscribe(qos=self.qos)
         expected.set_id(self.id)
         for (expected_topic, expected_qos) in self.topics:
@@ -365,7 +358,7 @@ class test_MQTTSubAck(unittest.TestCase):
         self.assertEqual(bs, expected)
 
     def test_unmarshal(self):
-        message = _MQTTMessage.unmarshal_message(self.msg)
+        (message, remaining) = _MQTTMessage.unmarshal_message(self.msg)
         expected = _MQTTSubAck()
         expected.set_id(self.id)
         for qos in self.subscribed_qos:
@@ -399,72 +392,141 @@ class test_MQTTUnsubAck(unittest.TestCase):
         assert False
 
 
-class test_MQTTPingReq(unittest.TestCase):
-    def setUp(self):
-        self.msg = b'\xc0\x00'
-
-    def test_marshal(self):
-        message = _MQTTPingReq()
-        bs = message.marshal()
-        self.assertEqual(bs, self.msg)
-
-    def test_unmarshal(self):
-        message = _MQTTMessage.unmarshal_message(self.msg)
-        expected = _MQTTPingReq()
-
-        self.assertEqual(message.header.type, expected.header.type)
-
-
-class test_MQTTPingResp(unittest.TestCase):
-    def test___init__(self):
-        # __mqtt_ping_resp = _MQTTPingResp()
-        assert False
-
-
 class test_MQTTFlow(unittest.TestCase):
-    def test_get(self):
-        # __mqtt_flow = _MQTTFlow(message)
-        # self.assertEqual(expected, __mqtt_flow.get())
-        assert False
+    def test_get_connect_connect(self):
+        flow = _MQTTFlow.get(_MQTTConnect())
+        self.assertIsInstance(flow, _MQTTConnectFlow)
 
-    def test_has_next(self):
-        # __mqtt_flow = _MQTTFlow(message)
-        # self.assertEqual(expected, __mqtt_flow.has_next())
-        assert False
+    def test_get_connect_connack(self):
+        flow = _MQTTFlow.get(_MQTTConnAck())
+        self.assertIsInstance(flow, _MQTTConnectFlow)
 
-    def test_next(self):
-        # __mqtt_flow = _MQTTFlow(message)
-        # self.assertEqual(expected, __mqtt_flow.next())
-        assert False
+    def test_get_subscribe_subscribe(self):
+        flow = _MQTTFlow.get(_MQTTSubscribe())
+        self.assertIsInstance(flow, _MQTTSubscribeFlow)
 
-    def test_process(self):
-        # __mqtt_flow = _MQTTFlow(message)
-        # self.assertEqual(expected, __mqtt_flow.process(protocol, handler))
-        assert False
+    def test_get_subscribe_suback(self):
+        flow = _MQTTFlow.get(_MQTTSubAck())
+        self.assertIsInstance(flow, _MQTTSubscribeFlow)
+
+    def test_get_ping_pingreq(self):
+        flow = _MQTTFlow.get(_MQTTPingReq())
+        self.assertIsInstance(flow, _MQTTPingFlow)
+
+    def test_get_ping_pingresp(self):
+        flow = _MQTTFlow.get(_MQTTPingResp())
+        self.assertIsInstance(flow, _MQTTPingFlow)
+
+    def test_get_disconnect(self):
+        flow = _MQTTFlow.get(_MQTTDisconnect())
+        self.assertIsInstance(flow, _MQTTDisconnectFlow)
+
+    def test_get_simple_publish(self):
+        flow = _MQTTFlow.get(_MQTTPublish(qos=0))
+        self.assertIsInstance(flow, _MQTTSimplePublishFlow)
+
+    def test_get_atleastonce_publish(self):
+        flow = _MQTTFlow.get(_MQTTPublish(qos=1))
+        self.assertIsInstance(flow, _MQTTAtLeastOncePublishFlow)
+
+    def test_get_atleastonce_puback(self):
+        flow = _MQTTFlow.get(_MQTTPubAck())
+        self.assertIsInstance(flow, _MQTTAtLeastOncePublishFlow)
+
+    def test_get_exactly_publish(self):
+        flow = _MQTTFlow.get(_MQTTPublish(qos=2))
+        self.assertIsInstance(flow, _MQTTExactlyDeliveryPublishFlow)
+
+    def test_get_exactly_pubrec(self):
+        flow = _MQTTFlow.get(_MQTTPubRec())
+        self.assertIsInstance(flow, _MQTTExactlyDeliveryPublishFlow)
+
+    def test_get_exactly_pubrel(self):
+        flow = _MQTTFlow.get(_MQTTPubRel(qos=2))
+        self.assertIsInstance(flow, _MQTTExactlyDeliveryPublishFlow)
+
+    def test_get_exactly_pubcomp(self):
+        flow = _MQTTFlow.get(_MQTTPubComp())
+        self.assertIsInstance(flow, _MQTTExactlyDeliveryPublishFlow)
+
+    def test_get_unsubscribe_unsubscribe(self):
+        flow = _MQTTFlow.get(_MQTTUnsubscribe())
+        self.assertIsInstance(flow, _MQTTUnsubscribeFlow)
+
+    def test_get_unsubscribe_unsubscribe_qos1(self):
+        flow = _MQTTFlow.get(_MQTTUnsubscribe(qos=1))
+        self.assertIsInstance(flow, _MQTTUnsubscribeFlow)
+
+    def test_get_unsubscribe_unsuback(self):
+        flow = _MQTTFlow.get(_MQTTUnsubAck())
+        self.assertIsInstance(flow, _MQTTUnsubscribeFlow)
+
+
+class SimpleId(object):
+    def __init__(self, iid):
+        self.iid = iid
+
+
+def validate_call(case, mock_method, method_name, eargs, ekwargs):
+    mname, args, kwargs = mock_method
+    case.assertEqual(mname, method_name)
+
+    for idx in range(0, len(args)):
+        case.assertEqual(args[idx], eargs[idx])
+    for arg in kwargs:
+        case.assertEqual(kwargs[arg], ekwargs[arg])
+
+    case.assertEqual(len(args) + len(kwargs), len(eargs))
 
 
 class test_MQTTSimplePublishFlow(unittest.TestCase):
+
+    def setUp(self):
+        self.topic = 'test/unittest'
+        self.message = 'execute'
+        message = _MQTTPublish(qos=0)
+        message.set_topic(self.topic)
+        message.set_message(self.message)
+        self.flow = _MQTTFlow.get(message)
+
     def test_has_next(self):
-        # __mqtt_simple_publish_flow = _MQTTSimplePublishFlow(message)
-        # self.assertEqual(expected, __mqtt_simple_publish_flow.has_next())
-        assert False
+        self.assertFalse(self.flow.has_next())
+
+    def test_next(self):
+        self.assertIsNone(self.flow.next())
 
     def test_process(self):
-        # __mqtt_simple_publish_flow = _MQTTSimplePublishFlow(message)
-        # self.assertEqual(expected, __mqtt_simple_publish_flow.process(protocol, handler))
-        assert False
+        handler = mock.Mock(spec=mqtt.MQTTEventHandler)
+        iid = SimpleId('snet/client-1')
+
+        self.flow.process(iid, handler)
+
+        self.assertEqual(len(handler.method_calls), 1)
+
+        eargs = (iid.iid, self.topic, self.message)
+        ekwargs = {'client_id': iid.iid,
+                   'topic': self.topic,
+                   'message': self.message}
+        validate_call(self, handler.method_calls[0], 'publish', eargs, ekwargs)
 
 
 class test_MQTTAtLeastOncePublishFlow(unittest.TestCase):
-    def test_has_next(self):
-        # __mqtt_at_least_once_publish_flow = _MQTTAtLeastOncePublishFlow(message)
-        # self.assertEqual(expected, __mqtt_at_least_once_publish_flow.has_next())
-        assert False
+    def setUp(self):
+        self.topic = 'test/unittest'
+        self.message = 'execute'
+        message = _MQTTPublish(qos=1)
+        message.set_topic(self.topic)
+        message.set_message(self.message)
+        self.flow = _MQTTFlow.get(message)
 
-    def test_next(self):
-        # __mqtt_at_least_once_publish_flow = _MQTTAtLeastOncePublishFlow(message)
-        # self.assertEqual(expected, __mqtt_at_least_once_publish_flow.next())
-        assert False
+    def test_has_next_publish(self):
+        flow = _MQTTFlow.get(_MQTTPublish(qos=1))
+
+        self.assertTrue(flow.has_next())
+
+    def test_has_next_puback(self):
+        flow = _MQTTFlow.get(_MQTTPubAck())
+        self.assertFalse(flow.has_next())
 
     def test_process(self):
         # __mqtt_at_least_once_publish_flow = _MQTTAtLeastOncePublishFlow(message)
