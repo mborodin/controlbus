@@ -6,6 +6,8 @@ __running = False
 
 _timeout = 3
 
+_lock = threading.Lock()
+
 socket_map = {}
 
 _epoll = select.epoll()
@@ -13,7 +15,8 @@ _epoll = select.epoll()
 
 def _main_loop():
     while __running:
-        events = _epoll.poll(_timeout)
+        with _lock:
+            events = _epoll.poll(_timeout)
         for fd, event in events:
             if not fd in socket_map:
                 continue
@@ -56,20 +59,22 @@ def stop():
 
 
 def add_transport(t):
-    fd = t.fd()
-    socket_map[fd] = t
-    mask = select.EPOLLHUP | select.EPOLLERR
-    if t.is_readable():
-        mask |= select.EPOLLIN
-    if t.is_writeable():
-        mask |= select.EPOLLOUT
-    if t.is_listening():
-        mask = select.EPOLLIN | select.EPOLLET
+    with _lock:
+        fd = t.fd()
+        socket_map[fd] = t
+        mask = select.EPOLLHUP | select.EPOLLERR
+        if t.is_readable():
+            mask |= select.EPOLLIN
+        if t.is_writeable():
+            mask |= select.EPOLLOUT
+        if t.is_listening():
+            mask = select.EPOLLIN | select.EPOLLET
 
-    _epoll.register(fd, mask)
+        _epoll.register(fd, mask)
 
 
 def remove_transport(t):
-    fd = t.fd()
-    socket_map.pop(fd)
-    _epoll.unregister(fd)
+    with _lock:
+        fd = t.fd()
+        socket_map.pop(fd)
+        _epoll.unregister(fd)
