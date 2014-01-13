@@ -518,6 +518,7 @@ class _MQTTDisconnect(_MQTTMessage):
 
 class _MQTTFlow(object):
     messages = []
+    ignore_qos = []
     qos = [0, 1, 2]
 
     @staticmethod
@@ -528,7 +529,8 @@ class _MQTTFlow(object):
         @return: _MQTTFlow
         """
         cls = [i for i in get_subclasses(_MQTTFlow) if
-               not (not (message.header.type in i.messages) or not (message.header.qos in i.qos))][0]
+               not (not (message.header.type in i.messages) or (not (message.header.qos in i.qos)
+                                                                and not(message.header.type in i.ignore_qos)))][0]
         return cls(message)
 
     def __init__(self, message):
@@ -560,6 +562,7 @@ class _MQTTSimplePublishFlow(_MQTTFlow):
 
 class _MQTTAtLeastOncePublishFlow(_MQTTFlow):
     messages = [_PUBLISH, _PUBACK]
+    ignore_qos = [_PUBACK]
     qos = [1]
 
     def __init__(self, message):
@@ -570,12 +573,9 @@ class _MQTTAtLeastOncePublishFlow(_MQTTFlow):
         message = self.message
         mtype = message.header.type
         if mtype == _PUBLISH:
-            watchdog.touch(message.id)
             handler.publish(protocol.iid, self.message.get_topic(), self.message.get_message())
             self.rmessage = _MQTTPubAck()
             self.rmessage.id = message.id
-            watchdog.add(message.id, self.retry_timeout, self.resend)
-            protocol.processing[id] = self.rmessage
         else:
             watchdog.remove(message.id)
             protocol.processing.pop(message.id)
@@ -587,12 +587,13 @@ class _MQTTAtLeastOncePublishFlow(_MQTTFlow):
         return self.rmessage
 
 
-class _MQTTAtMostDeliveryPublishFlow(_MQTTFlow):
-    messages = [_PUBLISH, _PUBREC, _PUBREL]
+class _MQTTExactlyDeliveryPublishFlow(_MQTTFlow):
+    messages = [_PUBLISH, _PUBREC, _PUBREL, _PUBCOMP]
+    ignore_qos = [_PUBREC, _PUBCOMP]
     qos = [2]
 
     def __init__(self, message):
-        super(_MQTTAtMostDeliveryPublishFlow, self).__init__(message)
+        super(_MQTTExactlyDeliveryPublishFlow, self).__init__(message)
         self.rmessage = None
 
     def process(self, protocol=None, handler=None):
@@ -602,20 +603,24 @@ class _MQTTAtMostDeliveryPublishFlow(_MQTTFlow):
             watchdog.touch(message.id)
             handler.publish(protocol.iid, self.message.get_topic(), self.message.get_message())
             self.rmessage = _MQTTPubRec()
-            self.rmessage.id = message.id
+            message.set_id(message.id)
             watchdog.add(message.id, self.retry_timeout, self.resend)
             protocol.processing[id] = self.rmessage
         elif mtype == _PUBREC:
             self.rmessage = _MQTTPubRel()
-            self.rmessage.id = message.id
+            message.set_id(message.id)
             watchdog.touch(message.id)
             protocol.processing[id] = self.rmessage
         else:
+            if mtype == _PUBREL:
+                self.rmessage = _MQTTPubComp()
+                self.rmessage.set_id(message.id)
             watchdog.remove(message.id)
             protocol.processing.pop(message.id)
 
     def has_next(self):
-        return self.message.header.type == _PUBLISH or self.message.header.type == _PUBREC
+        return self.message.header.type == _PUBLISH or self.message.header.type == _PUBREC \
+            or self.message.header == _PUBREL
 
     def next(self):
         return self.rmessage
