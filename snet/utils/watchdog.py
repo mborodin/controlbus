@@ -35,12 +35,16 @@ def add(uid, timeout, callback, grace=0.0):
 
 
 def remove(uid):
+    if not _timer.ticking:
+        return
     if not uid in _queue:
         raise ValueError('Id {0} not found'.format(uid))
     _queue.pop(uid)
 
 
 def touch(uid):
+    if not _timer.ticking:
+        return
     if not uid in _queue:
         raise ValueError('Id {0} not found'.format(uid))
     (_, timeout, grace, callback) = _queue[uid]
