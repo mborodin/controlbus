@@ -647,8 +647,21 @@ class _MQTTSubscribeFlow(_MQTTFlow):
                 watchdog.add(message.id, self.retry_timeout, self.resend)
                 protocol.processing[id] = self.rmessage
         else:
-            watchdog.remove(self.message.id)
-            protocol.processing.pop(self.message.id)
+            val = protocol.processing[message.id]
+            num = val[0]
+            if isinstance(val[1], list):
+                qoses = val[1]
+            else:
+                qoses = []
+                protocol.processing[message.id] = (num, qoses)
+            for qos in message.qoses:
+                qoses.append(qos)
+            if len(qoses) == num:
+                watchdog.remove(message.id)
+                protocol.processing.pop(message.id)
+                handler.subscribed(protocol.iid, qoses)
+            else:
+                watchdog.touch(message.id)
 
     def has_next(self):
         return self.message.header.qos > 0 and self.message.header.type == _SUBSCRIBE
@@ -770,6 +783,9 @@ class MQTTEventHandler(object):
         pass
 
     def subscribe(self, client_id, topics):
+        pass
+
+    def subscribed(self, client_id, qoses):
         pass
 
     def unsubscribe(self, client_id, topic):
@@ -894,7 +910,13 @@ class MQTTProtocol(BaseProtocol):
             self.output.put(message)
 
     def resend(self, mid):
-        message = self.processing[mid]
+        val = self.processing[mid]
+        if not isinstance(val, tuple):  # Handle special case: subscribe message
+            message = val
+        elif isinstance(val[1], _MQTTSubscribe):
+            message = val[1]
+        else:  # If we are receiving SubAcks's - we can only wait
+            return
         message.dup()
         self.send(message)
         watchdog.touch(mid)
@@ -904,7 +926,7 @@ class MQTTProtocol(BaseProtocol):
         for topic in topics:
             message.add_topic(topic[0], topic[1])
         self.send(message)
-        self.processing[message.id] = message
+        self.processing[message.id] = (len(message.topics), message)
         watchdog.add(message.id, self.retry_timeout, self.resend)
 
     def publish(self, topic, data, qos=None):
