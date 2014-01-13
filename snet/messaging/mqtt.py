@@ -362,11 +362,14 @@ class _MQTTMessageWithID(_MQTTMessage):
     def __init__(self, msgtype, qos=0, dup=False, retain=False):
         super(_MQTTMessageWithID, self).__init__(msgtype, qos, dup, retain)
         self.id = None
-        if qos > 0 or msgtype == _SUBSCRIBE or msgtype == _SUBACK:
+        if qos > 0 or msgtype == _SUBSCRIBE or msgtype == _SUBACK or msgtype == _PUBREC:
             self.varheader = (('id', 'H'),)
 
     def unmarshal(self, buf):
-        if self.header.qos > 0 or self.header.type == _SUBSCRIBE or self.header.type == _SUBACK:
+        if self.header.qos > 0 \
+            or self.header.type == _SUBSCRIBE \
+            or self.header.type == _SUBACK \
+            or self.header.type == _PUBREC:
             t = ('id', 'H')
             if not t in self.varheader:
                 self.varheader += (t,)
@@ -532,7 +535,7 @@ class _MQTTFlow(object):
         """
         cls = [i for i in get_subclasses(_MQTTFlow) if
                not (not (message.header.type in i.messages) or (not (message.header.qos in i.qos)
-                                                                and not(message.header.type in i.ignore_qos)))][0]
+                                                                and not (message.header.type in i.ignore_qos)))][0]
         return cls(message)
 
     def __init__(self, message):
@@ -591,7 +594,7 @@ class _MQTTAtLeastOncePublishFlow(_MQTTFlow):
 
 class _MQTTExactlyDeliveryPublishFlow(_MQTTFlow):
     messages = [_PUBLISH, _PUBREC, _PUBREL, _PUBCOMP]
-    ignore_qos = [_PUBREC, _PUBCOMP]
+    ignore_qos = [_PUBREC, _PUBREL, _PUBCOMP]
     qos = [2]
 
     def __init__(self, message):
@@ -602,17 +605,17 @@ class _MQTTExactlyDeliveryPublishFlow(_MQTTFlow):
         message = self.message
         mtype = message.header.type
         if mtype == _PUBLISH:
-            watchdog.touch(message.id)
             handler.publish(protocol.iid, self.message.get_topic(), self.message.get_message())
             self.rmessage = _MQTTPubRec()
             message.set_id(message.id)
-            watchdog.add(message.id, self.retry_timeout, self.resend)
-            protocol.processing[id] = self.rmessage
+            watchdog.add(message.id, protocol.retry_timeout, protocol.resend)
+            protocol.processing[message.id] = self.rmessage
         elif mtype == _PUBREC:
             self.rmessage = _MQTTPubRel()
-            message.set_id(message.id)
+            self.rmessage.set_id(message.id)
+            #watchdog.add(message.id, protocol.retry_timeout, protocol.resend)
             watchdog.touch(message.id)
-            protocol.processing[id] = self.rmessage
+            protocol.processing[message.id] = self.rmessage
         else:
             if mtype == _PUBREL:
                 self.rmessage = _MQTTPubComp()
@@ -644,7 +647,7 @@ class _MQTTSubscribeFlow(_MQTTFlow):
                 self.rmessage = _MQTTSubAck()
                 self.rmessage.id = message.id
                 map(self.rmessage.add, rep)
-                watchdog.add(message.id, self.retry_timeout, self.resend)
+                watchdog.add(message.id, protocol.retry_timeout, protocol.resend)
                 protocol.processing[id] = self.rmessage
         else:
             val = protocol.processing[message.id]
@@ -737,7 +740,7 @@ class _MQTTUnsubscribeFlow(_MQTTFlow):
             if message.header.qos > 0:
                 self.rmessage = _MQTTUnsubAck()
                 self.rmessage.set_id(message.id)
-                watchdog.add(message.id, self.retry_timeout, self.resend)
+                watchdog.add(message.id, protocol.retry_timeout, protocol.resend)
                 protocol.processing[message.id] = self.rmessage
         else:
             watchdog.remove(message.id)
@@ -811,7 +814,7 @@ class MQTTProtocol(BaseProtocol):
         t.data_handler = client
         self.clients.append(client)
 
-    def __init__(self, addr=None, port=None, handler=None, iid=None, want_clean = False, keepalive=60, proto='tcp'):
+    def __init__(self, addr=None, port=None, handler=None, iid=None, want_clean=False, keepalive=60, proto='tcp'):
         self.qos = 0
         self.handler = handler
         self.iid = iid
@@ -828,7 +831,7 @@ class MQTTProtocol(BaseProtocol):
         self.processing = {}
         self.held = {}
         self.ping_sent = False
-        self.retry_timeout = 1.0
+        self.retry_timeout = 10.0
         self.keepalive = keepalive
         self.want_clean = want_clean
 
@@ -855,8 +858,7 @@ class MQTTProtocol(BaseProtocol):
                 (message, remaining) = _MQTTMessage.unmarshal_message(data)
                 flow = _MQTTFlow.get(message)
                 flow.process(self, self.handler)
-                if self.is_server:
-                    watchdog.touch(self.iid)
+                watchdog.touch(self.iid)
                 if flow.has_next():
                     self.send(flow.next())
                 elif isinstance(message, _MQTTMessageWithID):  # aka has_next = False && instance_check
