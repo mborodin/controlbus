@@ -666,7 +666,6 @@ class _MQTTConnectFlow(_MQTTFlow):
                 password = message.get_password()
                 is_clean = message.is_clean_session()
                 keepalive = message.get_keepalive()
-                watchdog.add(iid, keepalive, protocol.request_ping, 0.5)
                 post_mortem = message.get_will_message() + (message.get_will_qos(), message.get_will_retain())
                 protocol.connected = handler.connect(iid, user, password, is_clean, post_mortem)
                 if not self.connected:
@@ -786,7 +785,7 @@ class MQTTProtocol(BaseProtocol):
         t.data_handler = client
         self.clients.append(client)
 
-    def __init__(self, addr=None, port=None, handler=None, iid=None, proto='tcp'):
+    def __init__(self, addr=None, port=None, handler=None, iid=None, keepalive=60, proto='tcp'):
         self.qos = 0
         self.handler = handler
         self.iid = iid
@@ -804,6 +803,7 @@ class MQTTProtocol(BaseProtocol):
         self.held = {}
         self.ping_sent = False
         self.retry_timeout = 1.0
+        self.keepalive = keepalive
 
     def set_retry_timeout(self, retry_timeout):
         self.retry_timeout = retry_timeout
@@ -843,7 +843,9 @@ class MQTTProtocol(BaseProtocol):
     def open(self, is_server=False):
         self.is_server = is_server
         if not is_server:
+            watchdog.add(self.iid, self.keepalive, self.request_ping, 0.5)
             message = _MQTTConnect(self.iid)
+            message.set_keepalive(self.keepalive)
             self.output.put(message)
             self.transport.open()
         else:
