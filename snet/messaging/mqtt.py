@@ -702,7 +702,7 @@ class _MQTTConnectFlow(_MQTTFlow):
                 protocol.keepalive = keepalive
                 post_mortem = message.get_will_message() + (message.get_will_qos(), message.get_will_retain())
                 protocol.connected = handler.connect(iid, user, password, is_clean, post_mortem)
-                if not self.connected:
+                if not protocol.connected:
                     rmessage.code = _CONNACK_REFUSED_BAD_USERNAME_OR_PASSWORD
                 else:
                     rmessage.code = _CONNACK_ACCEPTED
