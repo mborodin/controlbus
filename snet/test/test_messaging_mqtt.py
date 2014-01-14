@@ -462,9 +462,14 @@ class test_MQTTFlow(unittest.TestCase):
         self.assertIsInstance(flow, _MQTTUnsubscribeFlow)
 
 
-class SimpleId(object):
+class SimpleProtocol(object):
     def __init__(self, iid):
         self.iid = iid
+        self.processing = {}
+        self.retry_timeout = 60
+
+    def resend(self, mid):
+        pass
 
 
 def validate_call(case, mock_method, method_name, eargs, ekwargs):
@@ -476,7 +481,7 @@ def validate_call(case, mock_method, method_name, eargs, ekwargs):
     for arg in kwargs:
         case.assertEqual(kwargs[arg], ekwargs[arg])
 
-    case.assertEqual(len(args) + len(kwargs), len(eargs))
+    case.assertLessEqual(len(args) + len(kwargs), len(eargs))
 
 
 class test_MQTTSimplePublishFlow(unittest.TestCase):
@@ -497,7 +502,7 @@ class test_MQTTSimplePublishFlow(unittest.TestCase):
 
     def test_process(self):
         handler = mock.Mock(spec=mqtt.MQTTEventHandler)
-        iid = SimpleId('snet/client-1')
+        iid = SimpleProtocol('snet/client-1')
 
         self.flow.process(iid, handler)
 
@@ -534,21 +539,141 @@ class test_MQTTAtLeastOncePublishFlow(unittest.TestCase):
         assert False
 
 
-class test_MQTTAtMostDeliveryPublishFlow(unittest.TestCase):
-    def test_has_next(self):
-        # __mqtt_at_most_delivery_publish_flow = _MQTTAtMostDeliveryPublishFlow(message)
-        # self.assertEqual(expected, __mqtt_at_most_delivery_publish_flow.has_next())
-        assert False
+class test_MQTTExactlyDeliveryPublishFlow(unittest.TestCase):
+    def setUp(self):
+        self.topic = 'test/unittest'
+        self.message = 'execute'
+        self.id = 1
+        message = _MQTTPublish(qos=2)
+        message.set_id(1)
+        message.set_topic(self.topic)
+        message.set_message(self.message)
+        self.flow_publish = _MQTTFlow.get(message)
 
-    def test_next(self):
-        # __mqtt_at_most_delivery_publish_flow = _MQTTAtMostDeliveryPublishFlow(message)
-        # self.assertEqual(expected, __mqtt_at_most_delivery_publish_flow.next())
-        assert False
+        message = _MQTTPubRec()
+        message.set_id(1)
+        self.flow_pubrec = _MQTTFlow.get(message)
 
-    def test_process(self):
-        # __mqtt_at_most_delivery_publish_flow = _MQTTAtMostDeliveryPublishFlow(message)
-        # self.assertEqual(expected, __mqtt_at_most_delivery_publish_flow.process(protocol, handler))
-        assert False
+        message = _MQTTPubRel(qos=1)
+        message.set_id(1)
+        self.flow_pubrel = _MQTTFlow.get(message)
+
+        message = _MQTTPubComp()
+        message.set_id(1)
+        self.flow_pubcomp = _MQTTFlow.get(message)
+
+        self.protocol = SimpleProtocol('snet/client-1')
+        self.handler = mqtt.MQTTEventHandler()
+
+    def test_has_next_publish(self):
+        self.assertTrue(self.flow_publish.has_next())
+
+    def test_has_next_pubrec(self):
+        self.assertTrue(self.flow_pubrec.has_next())
+
+    def test_has_next_pubrel(self):
+        self.assertTrue(self.flow_pubrel.has_next())
+
+    def test_has_next_pubcomp(self):
+        self.assertFalse(self.flow_pubcomp.has_next())
+
+    def test_next_publish(self):
+        self.flow_publish.process(self.protocol, self.handler)
+        message = self.flow_publish.next()
+        self.assertIsInstance(message, _MQTTPubRec)
+        self.assertEqual(message.id, self.id)
+
+    def test_next_pubrec(self):
+        self.flow_pubrec.process(self.protocol, self.handler)
+        message = self.flow_pubrec.next()
+        self.assertIsInstance(message, _MQTTPubRel)
+        self.assertEqual(message.id, self.id)
+
+    def test_next_pubrel(self):
+        self.protocol.processing[self.id] = None
+        self.flow_pubrel.process(self.protocol, self.handler)
+        message = self.flow_pubrel.next()
+        self.assertIsInstance(message, _MQTTPubComp)
+        self.assertEqual(message.id, self.id)
+
+    def test_next_pubcomp(self):
+        self.protocol.processing[self.id] = None
+        self.flow_pubcomp.process(self.protocol, self.handler)
+        self.assertIsNone(self.flow_pubcomp.next())
+
+    def test_process_publish(self):
+        handler = mock.Mock(spec=mqtt.MQTTEventHandler)
+
+        watchdog_mock = mock.Mock()
+        with mock.patch('snet.utils.watchdog.add', watchdog_mock):
+            self.flow_publish.process(self.protocol, handler)
+
+        self.assertEqual(len(handler.method_calls), 1)
+
+        eargs = (self.protocol.iid, self.topic, self.message)
+        ekwargs = {'client_id': self.protocol.iid,
+                   'topic': self.topic,
+                   'message': self.message}
+        validate_call(self, handler.method_calls[0], 'publish', eargs, ekwargs)
+
+        self.assertEqual(len(watchdog_mock.mock_calls), 1)
+
+        expected_grace = 0.0
+        eargs = (self.id, self.protocol.retry_timeout, self.protocol.resend, expected_grace)
+        ekwargs = {'uid': self.id,
+                   'timeout': self.protocol.retry_timeout,
+                   'callback': self.protocol.resend,
+                   'grace': expected_grace}
+        validate_call(self, watchdog_mock.mock_calls[0], '', eargs, ekwargs)
+
+    def test_process_pubrec(self):
+        handler = mock.Mock(spec=mqtt.MQTTEventHandler)
+
+        watchdog_mock = mock.Mock()
+        with mock.patch('snet.utils.watchdog.touch', watchdog_mock):
+            self.flow_pubrec.process(self.protocol, handler)
+
+        self.assertEqual(len(handler.method_calls), 0)
+
+        self.assertEqual(len(watchdog_mock.mock_calls), 1)
+
+        eargs = (self.id,)
+        ekwargs = {'uid': self.id}
+        validate_call(self, watchdog_mock.mock_calls[0], '', eargs, ekwargs)
+
+    def test_process_pubrel(self):
+        handler = mock.Mock(spec=mqtt.MQTTEventHandler)
+
+        self.protocol.processing[self.id] = None
+
+        watchdog_mock = mock.Mock()
+        with mock.patch('snet.utils.watchdog.remove', watchdog_mock):
+            self.flow_pubrel.process(self.protocol, handler)
+
+        self.assertEqual(len(handler.method_calls), 0)
+
+        self.assertEqual(len(watchdog_mock.mock_calls), 1)
+
+        eargs = (self.id,)
+        ekwargs = {'uid': self.id}
+        validate_call(self, watchdog_mock.mock_calls[0], '', eargs, ekwargs)
+
+    def test_process_pubcomp(self):
+        handler = mock.Mock(spec=mqtt.MQTTEventHandler)
+
+        self.protocol.processing[self.id] = None
+
+        watchdog_mock = mock.Mock()
+        with mock.patch('snet.utils.watchdog.remove', watchdog_mock):
+            self.flow_pubcomp.process(self.protocol, handler)
+
+        self.assertEqual(len(handler.method_calls), 0)
+
+        self.assertEqual(len(watchdog_mock.mock_calls), 1)
+
+        eargs = (self.id,)
+        ekwargs = {'uid': self.id}
+        validate_call(self, watchdog_mock.mock_calls[0], '', eargs, ekwargs)
 
 
 class test_MQTTSubscribeFlow(unittest.TestCase):
