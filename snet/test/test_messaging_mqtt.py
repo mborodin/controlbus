@@ -521,6 +521,7 @@ class test_MQTTSimplePublishFlow(unittest.TestCase):
         self.assertFalse(self.flow.has_next())
 
     def test_next(self):
+        self.flow.process(SimpleProtocol(None), mqtt.MQTTEventHandler())
         self.assertIsNone(self.flow.next())
 
     def test_process(self):
@@ -542,24 +543,56 @@ class test_MQTTAtLeastOncePublishFlow(unittest.TestCase):
     def setUp(self):
         self.topic = 'test/unittest'
         self.message = b'execute'
+        self.id = 1
+        self.iid = 'snet/client-1'
         message = _MQTTPublish(qos=1)
+        message.set_id(self.id)
         message.set_topic(self.topic)
         message.set_message(self.message)
-        self.flow = _MQTTFlow.get(message)
+        self.flow_publish = _MQTTFlow.get(message)
+        message = _MQTTPubAck()
+        message.set_id(self.id)
+        self.flow_puback = _MQTTFlow.get(message)
 
     def test_has_next_publish(self):
-        flow = _MQTTFlow.get(_MQTTPublish(qos=1))
-
-        self.assertTrue(flow.has_next())
+        self.assertTrue(self.flow_publish.has_next())
 
     def test_has_next_puback(self):
-        flow = _MQTTFlow.get(_MQTTPubAck())
-        self.assertFalse(flow.has_next())
+        self.assertFalse(self.flow_puback.has_next())
 
-    def test_process(self):
-        # __mqtt_at_least_once_publish_flow = _MQTTAtLeastOncePublishFlow(message)
-        # self.assertEqual(expected, __mqtt_at_least_once_publish_flow.process(protocol, handler))
-        assert False
+    def test_process_publish(self):
+        protocol = SimpleProtocol(self.iid)
+        handler = mock.Mock()
+        handler.publish.return_vallue = []
+
+        self.flow_publish.process(protocol, handler)
+
+        self.assertEqual(len(handler.method_calls), 1)
+
+        eargs = (protocol.iid, self.topic, self.message)
+        ekwargs = {'client_id': protocol.iid,
+                   'topic': self.topic,
+                   'message': self.message}
+        validate_call(self, handler.method_calls[0], 'publish', eargs, ekwargs)
+
+    def test_process_publish(self):
+        protocol = SimpleProtocol(self.iid)
+        protocol.processing[self.id] = None
+        handler = mock.Mock()
+
+        self.flow_puback.process(protocol, handler)
+
+        self.assertEqual(len(handler.method_calls), 0)
+
+    def test_next_publish(self):
+        self.flow_publish.process(SimpleProtocol(None), mqtt.MQTTEventHandler())
+        self.assertEqual(self.flow_publish.next().id, self.id)
+
+    def test_next_puback(self):
+        protocol = SimpleProtocol(None)
+        protocol.processing[self.id] = None
+        self.flow_puback.process(protocol, mqtt.MQTTEventHandler())
+        self.assertIsNone(self.flow_puback.next())
 
 
 class test_MQTTExactlyDeliveryPublishFlow(unittest.TestCase):
