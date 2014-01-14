@@ -734,15 +734,28 @@ class test_MQTTConnectFlow(unittest.TestCase):
 
 
 class test_MQTTDisconnectFlow(unittest.TestCase):
-    def test_has_next(self):
-        # __mqtt_disconnect_flow = _MQTTDisconnectFlow(message)
-        # self.assertEqual(expected, __mqtt_disconnect_flow.has_next())
-        assert False
+    def setUp(self):
+        self.flow = _MQTTFlow.get(_MQTTDisconnect())
+        self.id = 'snet/client-1'
 
     def test_process(self):
-        # __mqtt_disconnect_flow = _MQTTDisconnectFlow(message)
-        # self.assertEqual(expected, __mqtt_disconnect_flow.process(protocol, handler))
-        assert False
+        protocol = SimpleProtocol(self.id)
+        handler = mock.Mock()
+
+        self.flow.process(protocol, handler)
+
+        self.assertEqual(len(handler.method_calls), 1)
+
+        eargs = (protocol.iid,)
+        ekwargs = {'client_id': protocol.iid}
+        validate_call(self, handler.method_calls[0], 'disconnect', eargs, ekwargs)
+
+    def test_has_next(self):
+        self.assertFalse(self.flow.has_next())
+
+    def test_next(self):
+        self.flow.process(SimpleProtocol(self.id), mqtt.MQTTEventHandler())
+        self.assertIsNone(self.flow.next())
 
 
 class test_MQTTUnsubscribeFlow(unittest.TestCase):
