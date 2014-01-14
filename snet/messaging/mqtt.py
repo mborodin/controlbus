@@ -400,9 +400,10 @@ class _MQTTPublish(_MQTTMessageWithID):
         return self.topic
 
     def set_message(self, message):
-        if not message is None or message != b'':
-            self.payload = (('message', 'p'),)
-            self.message = message
+        if message is None or not isinstance(message, bytes) or message == b'':
+            raise ValueError
+        self.payload = (('message', 'p'),)
+        self.message = message
 
     def get_message(self):
         return self.message

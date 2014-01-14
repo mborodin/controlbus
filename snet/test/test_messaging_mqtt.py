@@ -3,6 +3,7 @@ from io import BytesIO
 import mock
 
 from snet.messaging import mqtt
+from snet.utils import LeasedRoundRobin
 
 _CONNACK = mqtt._CONNACK
 _CONNACK_ACCEPTED = mqtt._CONNACK_ACCEPTED
@@ -369,6 +370,27 @@ class test_MQTTSubAck(unittest.TestCase):
             self.assertEqual(actual_qos, expected_qos)
 
 
+class test_MQTTPublish(unittest.TestCase):
+    def setUp(self):
+        self.message = _MQTTPublish()
+        self.payload = b'hello'
+
+    def test_set_message_ok(self):
+        try:
+            self.message.set_message(self.payload)
+        except Exception as e:
+            self.fail('No exception was expected but {0} is raised'.format(e))
+
+    def test_set_message_none_fail(self):
+        self.assertRaises(ValueError, self.message.set_message, None)
+
+    def test_set_message_empty_fail(self):
+        self.assertRaises(ValueError, self.message.set_message, b'')
+
+    def test_set_message_non_bytes_fail(self):
+        self.assertRaises(ValueError, self.message.set_message, 'hello')
+
+
 class test_MQTTUnsubscribe(unittest.TestCase):
     def test_add_topic(self):
         # __mqtt_unsubscribe = _MQTTUnsubscribe(qos, dup)
@@ -467,6 +489,7 @@ class SimpleProtocol(object):
         self.iid = iid
         self.processing = {}
         self.retry_timeout = 60
+        self.message_id_generator = LeasedRoundRobin(range(0, 0xFFFF))
 
     def resend(self, mid):
         pass
@@ -488,7 +511,7 @@ class test_MQTTSimplePublishFlow(unittest.TestCase):
 
     def setUp(self):
         self.topic = 'test/unittest'
-        self.message = 'execute'
+        self.message = b'execute'
         message = _MQTTPublish(qos=0)
         message.set_topic(self.topic)
         message.set_message(self.message)
@@ -518,7 +541,7 @@ class test_MQTTSimplePublishFlow(unittest.TestCase):
 class test_MQTTAtLeastOncePublishFlow(unittest.TestCase):
     def setUp(self):
         self.topic = 'test/unittest'
-        self.message = 'execute'
+        self.message = b'execute'
         message = _MQTTPublish(qos=1)
         message.set_topic(self.topic)
         message.set_message(self.message)
@@ -542,7 +565,7 @@ class test_MQTTAtLeastOncePublishFlow(unittest.TestCase):
 class test_MQTTExactlyDeliveryPublishFlow(unittest.TestCase):
     def setUp(self):
         self.topic = 'test/unittest'
-        self.message = 'execute'
+        self.message = b'execute'
         self.id = 1
         message = _MQTTPublish(qos=2)
         message.set_id(1)
