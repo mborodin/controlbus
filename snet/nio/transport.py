@@ -1,4 +1,5 @@
 import socket
+from threading import Event
 from snet.utils import get_subclasses
 from snet.nio import reactor
 
@@ -87,11 +88,15 @@ class TCPTransport(Transport):
         self.idata = None
         self.odata = None
         self.server = False
+        self.close_requested = False
+        self.close_event = Event()
 
     def is_readable(self):
         return not self.server
 
     def handle_close(self):
+        self.close_requested = True
+        self.close_event.wait()
         reactor.remove_transport(self)
         self.sock.close()
         self.sock = None
@@ -149,6 +154,8 @@ class TCPTransport(Transport):
             if self.data_handler.has_output():
                 data = self.data_handler.get_output()
                 self.sock.send(data)
+            if self.close_requested and not self.data_handler.has_output():
+                self.close_event.set()
 
     def is_writeable(self):
         return not self.server
