@@ -228,14 +228,14 @@ class _MQTTConnect(_MQTTMessage):
         self.username = username
 
     def get_username(self):
-        return None if self.flags & _MQTTConnect._USERNAME_BIT else self.username
+        return None if (self.flags & _MQTTConnect._USERNAME_BIT == 0) else self.username
 
     def set_password(self, password):
         self.flags |= _MQTTConnect._PASSWORD_BIT
         self.password = password
 
     def get_password(self):
-        return None if self.flags & _MQTTConnect._PASSWORD_BIT else self.password
+        return None if (self.flags & _MQTTConnect._PASSWORD_BIT == 0) else self.password
 
     def set_keepalive(self, keepalive):
         """
@@ -301,7 +301,7 @@ class _MQTTConnect(_MQTTMessage):
         flags byte, and the Will Topic and Will Message fields must be present in the payload.
 
         @param msg: message to publish on communication failure
-        @type msg str
+        @type msg bytes
         """
         self.flags |= _MQTTConnect._WILL_FLAG_BIT
         self.message = msg
@@ -691,7 +691,7 @@ class _MQTTConnectFlow(_MQTTFlow):
         message = self.message
         mtype = message.header.type
         if mtype == _CONNECT:
-            rmessage = _MQTTConnAck(_CONNACK_REFUSED_PROTOCOL_VERSION)
+            self.rmessage = _MQTTConnAck(_CONNACK_REFUSED_PROTOCOL_VERSION)
             if message.version == 3:
                 iid = message.id
                 protocol.iid = iid
@@ -703,9 +703,9 @@ class _MQTTConnectFlow(_MQTTFlow):
                 post_mortem = message.get_will_message() + (message.get_will_qos(), message.get_will_retain())
                 protocol.connected = handler.connect(iid, user, password, is_clean, post_mortem)
                 if not protocol.connected:
-                    rmessage.code = _CONNACK_REFUSED_BAD_USERNAME_OR_PASSWORD
+                    self.rmessage.code = _CONNACK_REFUSED_BAD_USERNAME_OR_PASSWORD
                 else:
-                    rmessage.code = _CONNACK_ACCEPTED
+                    self.rmessage.code = _CONNACK_ACCEPTED
         elif mtype == _CONNACK:
             if message.code == _CONNACK_ACCEPTED:
                 protocol.connected = True
