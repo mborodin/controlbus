@@ -362,14 +362,17 @@ class _MQTTMessageWithID(_MQTTMessage):
     def __init__(self, msgtype, qos=0, dup=False, retain=False):
         super(_MQTTMessageWithID, self).__init__(msgtype, qos, dup, retain)
         self.id = None
-        if qos > 0 or msgtype == _SUBSCRIBE or msgtype == _SUBACK or msgtype == _PUBREC:
+        if qos > 0 or msgtype == _SUBSCRIBE or msgtype == _SUBACK or msgtype == _PUBREC \
+            or msgtype == _PUBREL or msgtype == _PUBCOMP:
             self.varheader = (('id', 'H'),)
 
     def unmarshal(self, buf):
         if self.header.qos > 0 \
             or self.header.type == _SUBSCRIBE \
             or self.header.type == _SUBACK \
-            or self.header.type == _PUBREC:
+            or self.header.type == _PUBREC \
+            or self.header.type == _PUBREL \
+            or self.header.type == _PUBCOMP:
             t = ('id', 'H')
             if not t in self.varheader:
                 self.varheader += (t,)
@@ -422,7 +425,7 @@ class _MQTTPubRec(_MQTTMessageWithID):
 
 
 class _MQTTPubRel(_MQTTMessageWithID):
-    def __init__(self, qos=0, dup=False):
+    def __init__(self, qos=1, dup=False):
         super(_MQTTPubRel, self).__init__(_PUBREL, qos, dup)
 
 
@@ -578,6 +581,7 @@ class _MQTTAtLeastOncePublishFlow(_MQTTFlow):
         message = self.message
         mtype = message.header.type
         if mtype == _PUBLISH:
+            protocol.message_id_generator.lease(message.id)
             handler.publish(protocol.iid, self.message.get_topic(), self.message.get_message())
             self.rmessage = _MQTTPubAck()
             self.rmessage.id = message.id
@@ -605,12 +609,14 @@ class _MQTTExactlyDeliveryPublishFlow(_MQTTFlow):
         message = self.message
         mtype = message.header.type
         if mtype == _PUBLISH:
+            protocol.message_id_generator.lease(message.id)
             handler.publish(protocol.iid, self.message.get_topic(), self.message.get_message())
             self.rmessage = _MQTTPubRec()
-            message.set_id(message.id)
+            self.rmessage.set_id(message.id)
             watchdog.add(message.id, protocol.retry_timeout, protocol.resend)
             protocol.processing[message.id] = self.rmessage
         elif mtype == _PUBREC:
+            protocol.message_id_generator.lease(message.id)
             self.rmessage = _MQTTPubRel()
             self.rmessage.set_id(message.id)
             #watchdog.add(message.id, protocol.retry_timeout, protocol.resend)
@@ -625,7 +631,7 @@ class _MQTTExactlyDeliveryPublishFlow(_MQTTFlow):
 
     def has_next(self):
         return self.message.header.type == _PUBLISH or self.message.header.type == _PUBREC \
-            or self.message.header == _PUBREL
+            or self.message.header.type == _PUBREL
 
     def next(self):
         return self.rmessage
@@ -644,10 +650,10 @@ class _MQTTSubscribeFlow(_MQTTFlow):
         if mtype == _SUBSCRIBE:
             rep = handler.subscribe(protocol.iid, self.message.topics)
             if self.message.header.qos > 0:
+                protocol.message_id_generator.lease(message.id)
                 self.rmessage = _MQTTSubAck()
-                self.rmessage.id = message.id
+                self.rmessage.set_id(message.id)
                 map(self.rmessage.add, rep)
-                watchdog.add(message.id, protocol.retry_timeout, protocol.resend)
                 protocol.processing[id] = self.rmessage
         else:
             val = protocol.processing[message.id]
@@ -692,6 +698,7 @@ class _MQTTConnectFlow(_MQTTFlow):
                 password = message.get_password()
                 is_clean = message.is_clean_session()
                 keepalive = message.get_keepalive()
+                protocol.keepalive = keepalive
                 post_mortem = message.get_will_message() + (message.get_will_qos(), message.get_will_retain())
                 protocol.connected = handler.connect(iid, user, password, is_clean, post_mortem)
                 if not self.connected:
@@ -738,6 +745,7 @@ class _MQTTUnsubscribeFlow(_MQTTFlow):
         if mtype == _UNSUBSCRIBE:
             handler.unsubscribe(protocol.iid, message.topics)
             if message.header.qos > 0:
+                protocol.message_id_generator.lease(message.id)
                 self.rmessage = _MQTTUnsubAck()
                 self.rmessage.set_id(message.id)
                 watchdog.add(message.id, protocol.retry_timeout, protocol.resend)
