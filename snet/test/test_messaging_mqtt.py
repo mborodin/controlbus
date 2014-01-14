@@ -3,6 +3,7 @@ from io import BytesIO
 import mock
 
 from snet.messaging import mqtt
+from snet.messaging.mqtt import _MQTTPingResp
 from snet.utils import LeasedRoundRobin
 
 _CONNACK = mqtt._CONNACK
@@ -489,6 +490,7 @@ class SimpleProtocol(object):
         self.iid = iid
         self.processing = {}
         self.retry_timeout = 60
+        self.ping_sent = None
         self.message_id_generator = LeasedRoundRobin(range(0, 0xFFFF))
 
     def resend(self, mid):
@@ -809,20 +811,27 @@ class test_MQTTUnsubscribeFlow(unittest.TestCase):
 
 
 class test_MQTTPingFlow(unittest.TestCase):
-    def test_has_next(self):
-        # __mqtt_ping_flow = _MQTTPingFlow(message)
-        # self.assertEqual(expected, __mqtt_ping_flow.has_next())
-        assert False
+    def setUp(self):
+        self.flow_pingreq = _MQTTFlow.get(_MQTTPingReq())
+        self.flow_pingresp = _MQTTFlow.get(_MQTTPingResp())
 
-    def test_next(self):
-        # __mqtt_ping_flow = _MQTTPingFlow(message)
-        # self.assertEqual(expected, __mqtt_ping_flow.next())
-        assert False
+    def test_has_next_pingreq(self):
+        self.assertTrue(self.flow_pingreq.has_next())
 
-    def test_process(self):
-        # __mqtt_ping_flow = _MQTTPingFlow(message)
-        # self.assertEqual(expected, __mqtt_ping_flow.process(protocol, handler))
-        assert False
+    def test_has_next_pingresp(self):
+        self.assertFalse(self.flow_pingresp.has_next())
+
+    def test_next_pingreq(self):
+        self.flow_pingreq.process(None, None)
+        self.assertIsInstance(self.flow_pingreq.next(), _MQTTPingResp)
+
+    def test_process_pingresp(self):
+        protocol = SimpleProtocol(None)
+        self.flow_pingreq.process(protocol, None)
+        self.assertTrue(protocol.ping_sent)
+
+    def test_process_pingresp(self):
+        self.flow_pingreq.process(None, None)
 
 
 class TestMQTTProtocol(unittest.TestCase):
