@@ -89,6 +89,13 @@ class LeasedRoundRobin:
     def __iter__(self):
         return self
 
+    def lease(self, v):
+        with self.values.mutex:
+            try:
+                self.values.queue.remove(v)
+            except ValueError:
+                pass
+
     def next(self):
         val = self.values.get()
         self.values.task_done()
