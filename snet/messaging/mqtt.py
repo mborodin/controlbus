@@ -698,20 +698,20 @@ class _MQTTConnectFlow(_MQTTFlow):
                 user = message.get_username()
                 password = message.get_password()
                 is_clean = message.is_clean_session()
-                keepalive = message.get_keepalive()
-                protocol.keepalive = keepalive
-                post_mortem = message.get_will_message() + (message.get_will_qos(), message.get_will_retain())
-                protocol.connected = handler.connect(iid, user, password, is_clean, post_mortem)
+                will = message.get_will_message() + (message.get_will_qos(), message.get_will_retain())
+                protocol.connected = handler.connect(iid, protocol, user, password, is_clean, will)
                 if not protocol.connected:
                     self.rmessage.code = _CONNACK_REFUSED_BAD_USERNAME_OR_PASSWORD
                 else:
                     self.rmessage.code = _CONNACK_ACCEPTED
+                    keepalive = message.get_keepalive()
+                    protocol.keepalive = keepalive
         elif mtype == _CONNACK:
             if message.code == _CONNACK_ACCEPTED:
                 protocol.connected = True
                 handler.connected(protocol.iid)
             else:
-                handler.error((message.code, _CONNACK_STRERR[message.code]))
+                handler.error(protocol.iid, (message.code, _CONNACK_STRERR[message.code]))
 
     def has_next(self):
         return self.message.header.type == _CONNECT
@@ -785,7 +785,7 @@ class _MQTTPingFlow(_MQTTFlow):
 
 
 class MQTTEventHandler(object):
-    def connect(self, client_id, user, password, is_clean, post_mortem):
+    def connect(self, client_id, protocol, user, password, is_clean, will):
         pass
 
     def connected(self, client_id):
