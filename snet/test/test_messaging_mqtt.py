@@ -4,7 +4,7 @@ import mock
 
 from snet.messaging import mqtt
 from snet.messaging.mqtt import _MQTTPingResp
-from snet.utils import LeasedRoundRobin
+from snet.utils import LeasedRoundRobin, flatten
 
 _CONNACK = mqtt._CONNACK
 _CONNACK_ACCEPTED = mqtt._CONNACK_ACCEPTED
@@ -392,27 +392,21 @@ class test_MQTTPublish(unittest.TestCase):
         self.assertRaises(ValueError, self.message.set_message, 'hello')
 
 
-class test_MQTTUnsubscribe(unittest.TestCase):
-    def test_add_topic(self):
-        # __mqtt_unsubscribe = _MQTTUnsubscribe(qos, dup)
-        # self.assertEqual(expected, __mqtt_unsubscribe.add_topic(topic))
-        assert False
-
-    def test_marshal(self):
-        # __mqtt_unsubscribe = _MQTTUnsubscribe(qos, dup)
-        # self.assertEqual(expected, __mqtt_unsubscribe.marshal())
-        assert False
-
-    def test_unmarshal(self):
-        # __mqtt_unsubscribe = _MQTTUnsubscribe(qos, dup)
-        # self.assertEqual(expected, __mqtt_unsubscribe.unmarshal(buf))
-        assert False
-
-
-class test_MQTTUnsubAck(unittest.TestCase):
-    def test___init__(self):
-        # __mqtt_unsub_ack = _MQTTUnsubAck()
-        assert False
+#class test_MQTTUnsubscribe(unittest.TestCase):
+#    def test_add_topic(self):
+#        # __mqtt_unsubscribe = _MQTTUnsubscribe(qos, dup)
+#        # self.assertEqual(expected, __mqtt_unsubscribe.add_topic(topic))
+#        assert False
+#
+#    def test_marshal(self):
+#        # __mqtt_unsubscribe = _MQTTUnsubscribe(qos, dup)
+#        # self.assertEqual(expected, __mqtt_unsubscribe.marshal())
+#        assert False
+#
+#    def test_unmarshal(self):
+#        # __mqtt_unsubscribe = _MQTTUnsubscribe(qos, dup)
+#        # self.assertEqual(expected, __mqtt_unsubscribe.unmarshal(buf))
+#        assert False
 
 
 class test_MQTTFlow(unittest.TestCase):
@@ -425,7 +419,9 @@ class test_MQTTFlow(unittest.TestCase):
         self.assertIsInstance(flow, _MQTTConnectFlow)
 
     def test_get_subscribe_subscribe(self):
-        flow = _MQTTFlow.get(_MQTTSubscribe())
+        message = _MQTTSubscribe()
+        message.set_id(1)
+        flow = _MQTTFlow.get(message)
         self.assertIsInstance(flow, _MQTTSubscribeFlow)
 
     def test_get_subscribe_suback(self):
@@ -737,20 +733,93 @@ class test_MQTTExactlyDeliveryPublishFlow(unittest.TestCase):
 
 
 class test_MQTTSubscribeFlow(unittest.TestCase):
-    def test_has_next(self):
-        # __mqtt_subscribe_flow = _MQTTSubscribeFlow(message)
-        # self.assertEqual(expected, __mqtt_subscribe_flow.has_next())
-        assert False
 
-    def test_next(self):
-        # __mqtt_subscribe_flow = _MQTTSubscribeFlow(message)
-        # self.assertEqual(expected, __mqtt_subscribe_flow.next())
-        assert False
+    @classmethod
+    def setUpClass(cls):
+        cls.iid = 'snet/client-1'
+        cls.topics = [('test/topic0', 0),
+                      ('test/topic1', 1),
+                      ('test/topic2', 2)]
+        cls.granted_qos = [0, 1, 2]
+        cls.partial_granted_qos = ((0, 1), (2,))
+        cls.msg_id = 1
 
-    def test_process(self):
-        # __mqtt_subscribe_flow = _MQTTSubscribeFlow(message)
-        # self.assertEqual(expected, __mqtt_subscribe_flow.process(protocol, handler))
-        assert False
+    def setUp(self):
+        message = _MQTTSubscribe()
+        message.set_id(self.msg_id)
+        [message.add_topic(x[0], x[1]) for x in self.topics]
+        self.flow_subscribe = _MQTTFlow.get(message)
+
+        message = _MQTTSubAck()
+        message.set_id(self.msg_id)
+        [message.add(x) for x in self.granted_qos]
+        self.flow_suback = _MQTTFlow.get(message)
+
+    def test_has_next_subscribe(self):
+        self.assertTrue(self.flow_subscribe.has_next())
+
+    def test_has_next_suback(self):
+        self.assertFalse(self.flow_suback.has_next())
+
+    def test_flow_subscribe(self):
+        protocol = SimpleProtocol(self.iid)
+        handler = mock.Mock()
+        handler.subscribe.return_value = self.granted_qos
+
+        self.flow_subscribe.process(protocol, handler)
+        self.assertEqual(len(handler.method_calls), 1)
+
+        eargs = (self.iid, self.topics)
+        ekwargs = {'client_id': self.iid,
+                   'topics': self.topics}
+        validate_call(self, handler.method_calls[0], 'subscribe', eargs, ekwargs)
+
+        message = self.flow_subscribe.next()
+
+        self.assertIsInstance(message, _MQTTSubAck)
+        self.assertEqual(message.qoses, self.granted_qos)
+
+    def test_flow_suback(self):
+        protocol = SimpleProtocol(self.iid)
+        protocol.processing[self.msg_id] = (len(self.granted_qos), None)
+        handler = mock.Mock()
+
+        self.flow_suback.process(protocol, handler)
+        self.assertEqual(len(handler.method_calls), 1)
+
+        eargs = (self.iid, self.granted_qos)
+        ekwargs = {'client_id': self.iid,
+                   'topics': self.granted_qos}
+        validate_call(self, handler.method_calls[0], 'subscribed', eargs, ekwargs)
+
+        message = self.flow_suback.next()
+
+        self.assertIsNone(message)
+
+    def test_flow_suback_partial(self):
+        partial = flatten(list(self.partial_granted_qos))
+        protocol = SimpleProtocol(self.iid)
+        protocol.processing[self.msg_id] = (len(self.granted_qos), None)
+        handler = mock.Mock()
+
+        idx = 1
+        c = len(self.partial_granted_qos)
+        for qoses in self.partial_granted_qos:
+            self.flow_suback.message.qoses = []
+            for qos in qoses:
+                self.flow_suback.message.add(qos)
+            self.flow_suback.process(protocol, handler)
+            self.assertEqual(len(handler.method_calls), 1 if idx == c else 0)
+            idx += 1
+
+        eargs = (self.iid, partial)
+        ekwargs = {'client_id': self.iid,
+                   'qoses': partial}
+        validate_call(self, handler.method_calls[0], 'subscribed', eargs, ekwargs)
+
+        message = self.flow_suback.next()
+
+        self.assertIsNone(message)
 
 
 class test_MQTTConnectFlow(unittest.TestCase):
