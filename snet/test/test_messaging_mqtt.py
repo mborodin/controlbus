@@ -320,10 +320,9 @@ class test_MQTTSubscribe(unittest.TestCase):
         self.topics = [('hello/world', 0)]
         self.msg = b'\x82\x10\x00\x01\x00\x0bhello/world\x00'
         self.id = 1
-        self.qos = 1
 
     def test_marshal(self):
-        message = _MQTTSubscribe(qos=self.qos)
+        message = _MQTTSubscribe()
         message.set_id(self.id)
         for (topic, qos) in self.topics:
             message.add_topic(topic, qos)
@@ -333,7 +332,7 @@ class test_MQTTSubscribe(unittest.TestCase):
 
     def test_unmarshal(self):
         (message, remaining) = _MQTTMessage.unmarshal_message(self.msg)
-        expected = _MQTTSubscribe(qos=self.qos)
+        expected = _MQTTSubscribe()
         expected.set_id(self.id)
         for (expected_topic, expected_qos) in self.topics:
             expected.add_topic(expected_topic, expected_qos)
@@ -470,10 +469,6 @@ class test_MQTTFlow(unittest.TestCase):
 
     def test_get_unsubscribe_unsubscribe(self):
         flow = _MQTTFlow.get(_MQTTUnsubscribe())
-        self.assertIsInstance(flow, _MQTTUnsubscribeFlow)
-
-    def test_get_unsubscribe_unsubscribe_qos1(self):
-        flow = _MQTTFlow.get(_MQTTUnsubscribe(qos=1))
         self.assertIsInstance(flow, _MQTTUnsubscribeFlow)
 
     def test_get_unsubscribe_unsuback(self):
@@ -777,6 +772,7 @@ class test_MQTTSubscribeFlow(unittest.TestCase):
         message = self.flow_subscribe.next()
 
         self.assertIsInstance(message, _MQTTSubAck)
+        self.assertEqual(message.id, self.msg_id)
         self.assertEqual(message.qoses, self.granted_qos)
 
     def test_flow_suback(self):
@@ -998,20 +994,61 @@ class test_MQTTDisconnectFlow(unittest.TestCase):
 
 
 class test_MQTTUnsubscribeFlow(unittest.TestCase):
-    def test_has_next(self):
-        # __mqtt_unsubscribe_flow = _MQTTUnsubscribeFlow(message)
-        # self.assertEqual(expected, __mqtt_unsubscribe_flow.has_next())
-        assert False
 
-    def test_next(self):
-        # __mqtt_unsubscribe_flow = _MQTTUnsubscribeFlow(message)
-        # self.assertEqual(expected, __mqtt_unsubscribe_flow.next())
-        assert False
+    @classmethod
+    def setUpClass(cls):
+        cls.iid = 'snet/client-1'
+        cls.topics = ['test/topic1', 'test/topic2']
+        cls.msg_id = 1
+
+    def setUp(self):
+        message = _MQTTUnsubscribe()
+        message.set_id(self.msg_id)
+        [message.add_topic(x) for x in self.topics]
+        self.flow_unsubscribe = _MQTTFlow.get(message)
+
+        message = _MQTTUnsubAck()
+        message.set_id(self.msg_id)
+        self.flow_unsuback = _MQTTFlow.get(message)
+
+    def test_has_next_unsubscribe(self):
+        self.assertTrue(self.flow_unsubscribe.has_next())
+
+    def test_has_next_unsuback(self):
+        self.assertFalse(self.flow_unsuback.has_next())
+
+    def test_flow_unsubscribe(self):
+        protocol = SimpleProtocol(self.iid)
+        handler = mock.Mock()
+
+        self.flow_unsubscribe.process(protocol, handler)
+        self.assertEqual(len(handler.method_calls), 1)
+
+        eargs = (self.iid, self.topics)
+        ekwargs = {'client_id': self.iid,
+                   'topics': self.topics}
+        validate_call(self, handler.method_calls[0], 'unsubscribe', eargs, ekwargs)
+
+        message = self.flow_unsubscribe.next()
+
+        self.assertIsInstance(message, _MQTTUnsubAck)
+        self.assertEqual(message.id, self.msg_id)
 
     def test_process(self):
-        # __mqtt_unsubscribe_flow = _MQTTUnsubscribeFlow(message)
-        # self.assertEqual(expected, __mqtt_unsubscribe_flow.process(protocol, handler))
-        assert False
+        protocol = SimpleProtocol(self.iid)
+        protocol.processing[self.msg_id] = None
+        handler = mock.Mock()
+
+        self.flow_unsuback.process(protocol, handler)
+        self.assertEqual(len(handler.method_calls), 1)
+
+        eargs = (self.iid,)
+        ekwargs = {'client_id': self.iid}
+        validate_call(self, handler.method_calls[0], 'unsubscribed', eargs, ekwargs)
+
+        message = self.flow_unsuback.next()
+
+        self.assertIsNone(message)
 
 
 class test_MQTTPingFlow(unittest.TestCase):
