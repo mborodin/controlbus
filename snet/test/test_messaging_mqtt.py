@@ -486,12 +486,14 @@ class test_MQTTFlow(unittest.TestCase):
 
 
 class SimpleProtocol(object):
-    def __init__(self, iid):
+    def __init__(self, iid=None):
         self.iid = iid
         self.processing = {}
         self.retry_timeout = 60
         self.ping_sent = None
         self.message_id_generator = LeasedRoundRobin(range(0, 0xFFFF))
+        self.connected = None
+        self.keepalive = None
 
     def resend(self, mid):
         pass
@@ -752,20 +754,153 @@ class test_MQTTSubscribeFlow(unittest.TestCase):
 
 
 class test_MQTTConnectFlow(unittest.TestCase):
-    def test_has_next(self):
-        # __mqtt_connect_flow = _MQTTConnectFlow(message)
-        # self.assertEqual(expected, __mqtt_connect_flow.has_next())
-        assert False
 
-    def test_next(self):
-        # __mqtt_connect_flow = _MQTTConnectFlow(message)
-        # self.assertEqual(expected, __mqtt_connect_flow.next())
-        assert False
+    @classmethod
+    def setUpClass(cls):
+        cls.code = _CONNACK_ACCEPTED
+        cls.err_code = _CONNACK_REFUSED_BAD_USERNAME_OR_PASSWORD
+        cls.iid = 'snet/client-1'
+        cls.username = 'testuser'
+        cls.password = 'testpassword'
+        cls.topic = 'disconnected'
+        cls.message = cls.iid.encode('ascii')
+        cls.qos = 2
+        cls.retain = True
+        cls.clean = True
+        cls.keepalive = 120
 
-    def test_process(self):
-        # __mqtt_connect_flow = _MQTTConnectFlow(message)
-        # self.assertEqual(expected, __mqtt_connect_flow.process(protocol, handler))
-        assert False
+    def setUp(self):
+        message = _MQTTConnect(self.iid)
+        message.set_keepalive(self.keepalive)
+        message.set_username(self.username)
+        message.set_password(self.password)
+        if self.clean:
+            message.clean_session()
+        message.will_qos(self.qos)
+        message.will_message(self.topic, self.message)
+        if self.retain:
+            message.will_retain()
+        self.flow_connect = _MQTTFlow.get(message)
+
+        message = _MQTTConnAck(self.code)
+        self.flow_connack = _MQTTFlow.get(message)
+
+    def test_has_next_connect(self):
+        self.assertTrue(self.flow_connect.has_next())
+
+    def test_has_next_connack(self):
+        self.assertFalse(self.flow_connack.has_next())
+
+    def test_flow_connect_ok(self):
+        protocol = SimpleProtocol(self.iid)
+        handler = mock.Mock()
+        handler.connect.return_value = True
+
+        will = (self.topic, self.message, self.qos, self.retain)
+
+        self.flow_connect.process(protocol, handler)
+
+        self.assertTrue(protocol.connected)
+        self.assertEqual(protocol.keepalive, self.keepalive)
+
+        self.assertEqual(len(handler.method_calls), 1)
+
+        eargs = (self.iid, protocol, self.username, self.password, self.clean, will)
+        ekwargs = {'client_id': self.iid,
+                   'protocol': protocol,
+                   'username': self.username,
+                   'password': self.password,
+                   'is_clean': self.clean,
+                   'will': will}
+        validate_call(self, handler.method_calls[0], 'connect', eargs, ekwargs)
+
+        message = self.flow_connect.next()
+
+        self.assertIsInstance(message, _MQTTConnAck)
+        self.assertEqual(message.code, self.code)
+
+    def test_flow_connect_bad_version_fail(self):
+        protocol = SimpleProtocol(self.iid)
+        handler = mock.Mock()
+
+        self.flow_connect.message.version = -1  # Set definitely wrong protocol version
+
+        self.flow_connect.process(protocol, handler)
+
+        self.assertFalse(protocol.connected)
+        self.assertIsNone(protocol.keepalive)
+
+        self.assertEqual(len(handler.method_calls), 0)
+
+        message = self.flow_connect.next()
+
+        self.assertIsInstance(message, _MQTTConnAck)
+        self.assertEqual(message.code, _CONNACK_REFUSED_PROTOCOL_VERSION)
+
+    def test_flow_connect_bad_username_or_password_fail(self):
+        protocol = SimpleProtocol(self.iid)
+        handler = mock.Mock()
+        handler.connect.return_value = False
+
+        will = (self.topic, self.message, self.qos, self.retain)
+
+        self.flow_connect.process(protocol, handler)
+
+        self.assertFalse(protocol.connected)
+        self.assertIsNone(protocol.keepalive)
+
+        self.assertEqual(len(handler.method_calls), 1)
+
+        eargs = (self.iid, protocol, self.username, self.password, self.clean, will)
+        ekwargs = {'client_id': self.iid,
+                   'protocol': protocol,
+                   'username': self.username,
+                   'password': self.password,
+                   'is_clean': self.clean,
+                   'will': will}
+        validate_call(self, handler.method_calls[0], 'connect', eargs, ekwargs)
+
+        message = self.flow_connect.next()
+
+        self.assertIsInstance(message, _MQTTConnAck)
+        self.assertEqual(message.code, _CONNACK_REFUSED_BAD_USERNAME_OR_PASSWORD)
+
+    def test_flow_connack_ok(self):
+        protocol = SimpleProtocol(self.iid)
+        handler = mock.Mock()
+
+        self.flow_connack.process(protocol, handler)
+
+        self.assertTrue(protocol.connected)
+
+        self.assertEqual(len(handler.method_calls), 1)
+
+        eargs = (self.iid,)
+        ekwargs = {'client_id': self.iid}
+        validate_call(self, handler.method_calls[0], 'connected', eargs, ekwargs)
+
+        self.assertIsNone(self.flow_connack.next())
+
+    def test_flow_connack_error_code_fail(self):
+        protocol = SimpleProtocol(self.iid)
+        handler = mock.Mock()
+
+        self.flow_connack.message.code = self.err_code
+
+        self.flow_connack.process(protocol, handler)
+
+        self.assertFalse(protocol.connected)
+
+        self.assertEqual(len(handler.method_calls), 1)
+
+        err = (self.err_code, _CONNACK_STRERR[self.err_code])
+
+        eargs = (self.iid, err)
+        ekwargs = {'client_id': self.iid,
+                   'err': err}
+        validate_call(self, handler.method_calls[0], 'error', eargs, ekwargs)
+
+        self.assertIsNone(self.flow_connack.next())
 
 
 class test_MQTTDisconnectFlow(unittest.TestCase):
