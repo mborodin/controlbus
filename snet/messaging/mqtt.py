@@ -650,12 +650,11 @@ class _MQTTSubscribeFlow(_MQTTFlow):
         mtype = message.header.type
         if mtype == _SUBSCRIBE:
             rep = handler.subscribe(protocol.iid, self.message.topics)
-            if self.message.header.qos > 0:
-                protocol.message_id_generator.lease(message.id)
-                self.rmessage = _MQTTSubAck()
-                self.rmessage.set_id(message.id)
-                map(self.rmessage.add, rep)
-                protocol.processing[id] = self.rmessage
+            protocol.message_id_generator.lease(message.id)
+            self.rmessage = _MQTTSubAck()
+            self.rmessage.set_id(message.id)
+            [self.rmessage.add(x) for x in rep]
+            protocol.processing[id] = self.rmessage
         else:
             val = protocol.processing[message.id]
             num = val[0]
@@ -674,7 +673,7 @@ class _MQTTSubscribeFlow(_MQTTFlow):
                 watchdog.touch(message.id)
 
     def has_next(self):
-        return self.message.header.qos > 0 and self.message.header.type == _SUBSCRIBE
+        return self.message.header.type == _SUBSCRIBE
 
     def next(self):
         return self.rmessage
