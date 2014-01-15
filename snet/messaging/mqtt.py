@@ -436,8 +436,8 @@ class _MQTTPubComp(_MQTTMessageWithID):
 
 
 class _MQTTSubscribe(_MQTTMessageWithID):
-    def __init__(self, qos=0, dup=False):
-        super(_MQTTSubscribe, self).__init__(_SUBSCRIBE, qos, dup)
+    def __init__(self, dup=False):
+        super(_MQTTSubscribe, self).__init__(_SUBSCRIBE, 1, dup)
         self.topics = []
 
     def marshal(self):
@@ -486,8 +486,8 @@ class _MQTTSubAck(_MQTTMessageWithID):
 
 
 class _MQTTUnsubscribe(_MQTTMessageWithID):
-    def __init__(self, qos=0, dup=False):
-        super(_MQTTUnsubscribe, self).__init__(_UNSUBSCRIBE, qos, dup)
+    def __init__(self, dup=False):
+        super(_MQTTUnsubscribe, self).__init__(_UNSUBSCRIBE, 1, dup)
         self.topics = []
 
     def marshal(self):
@@ -748,10 +748,10 @@ class _MQTTUnsubscribeFlow(_MQTTFlow):
                 protocol.message_id_generator.lease(message.id)
                 self.rmessage = _MQTTUnsubAck()
                 self.rmessage.set_id(message.id)
-                watchdog.add(message.id, protocol.retry_timeout, protocol.resend)
                 protocol.processing[message.id] = self.rmessage
         else:
             watchdog.remove(message.id)
+            handler.unsubscribed(protocol.iid)
             protocol.processing.pop(message.id)
 
     def has_next(self):
