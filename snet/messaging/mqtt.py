@@ -879,12 +879,16 @@ class MQTTProtocol(BaseProtocol):
         self.output.task_done()
         return message.marshal()
 
-    def open(self, is_server=False):
+    def open(self, is_server=False, username=None, password=None):
         self.is_server = is_server
         if not is_server:
             watchdog.add(self.iid, self.keepalive, self.request_ping, 0.1)
             message = _MQTTConnect(self.iid)
             message.set_keepalive(self.keepalive)
+            if username is not None:
+                message.set_username(username)
+            if password is not None:
+                message.set_password(password)
             if self.want_clean:
                 message.clean_session()
             self.output.put(message)
