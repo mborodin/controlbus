@@ -1,7 +1,7 @@
-from nio import reactor
-from nio.protocols import BaseProtocol
-from nio.transport import TFOTransport
-from nio.daemon import sigfinish, daemon
+from snet.nio import reactor
+from snet.nio.protocols import BaseProtocol
+from snet.nio.transport import TFOTransport
+from snet.utils.daemon import sigfinish, daemon
 
 
 class SampleProtocol(BaseProtocol):

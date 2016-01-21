@@ -1,7 +1,7 @@
 import time
 
-from nio import reactor
-from nio import transport
+from snet.nio import reactor
+from snet.nio import transport
 from sample_tfo_server import SampleProtocol
 
 
