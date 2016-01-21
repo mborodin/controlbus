@@ -9,7 +9,6 @@ from snet.nio.protocols import BaseProtocol
 from snet.nio import transport
 from snet.utils import LeasedRoundRobin, get_subclasses, watchdog
 
-
 _CONNECT = 1
 _CONNACK = 2
 _PUBLISH = 3
@@ -363,16 +362,17 @@ class _MQTTMessageWithID(_MQTTMessage):
         super(_MQTTMessageWithID, self).__init__(msgtype, qos, dup, retain)
         self.id = None
         if qos > 0 or msgtype == _SUBSCRIBE or msgtype == _SUBACK or msgtype == _PUBREC \
-            or msgtype == _PUBREL or msgtype == _PUBCOMP:
+                or msgtype == _PUBREL or msgtype == _PUBCOMP:
             self.varheader = (('id', 'H'),)
 
     def unmarshal(self, buf):
         if self.header.qos > 0 \
-            or self.header.type == _SUBSCRIBE \
-            or self.header.type == _SUBACK \
-            or self.header.type == _PUBREC \
-            or self.header.type == _PUBREL \
-            or self.header.type == _PUBCOMP:
+                or self.header.type == _SUBSCRIBE \
+                or self.header.type == _SUBACK \
+                or self.header.type == _PUBACK \
+                or self.header.type == _PUBREC \
+                or self.header.type == _PUBREL \
+                or self.header.type == _PUBCOMP:
             t = ('id', 'H')
             if not t in self.varheader:
                 self.varheader += (t,)
@@ -620,7 +620,7 @@ class _MQTTExactlyDeliveryPublishFlow(_MQTTFlow):
             protocol.message_id_generator.lease(message.id)
             self.rmessage = _MQTTPubRel()
             self.rmessage.set_id(message.id)
-            #watchdog.add(message.id, protocol.retry_timeout, protocol.resend)
+            # watchdog.add(message.id, protocol.retry_timeout, protocol.resend)
             watchdog.touch(message.id)
             protocol.processing[message.id] = self.rmessage
         else:
@@ -632,7 +632,7 @@ class _MQTTExactlyDeliveryPublishFlow(_MQTTFlow):
 
     def has_next(self):
         return self.message.header.type == _PUBLISH or self.message.header.type == _PUBREC \
-            or self.message.header.type == _PUBREL
+               or self.message.header.type == _PUBREL
 
     def next(self):
         return self.rmessage
@@ -826,7 +826,7 @@ class MQTTProtocol(BaseProtocol):
         self.qos = 0
         self.handler = handler
         self.iid = iid
-        if not addr is None:
+        if addr is not None:
             self.transport = transport.get(proto, addr, port, self)
         else:
             self.transport = None
