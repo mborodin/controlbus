@@ -15,20 +15,20 @@ _transport_map = {}
 
 
 def add_transport(transport, protocol):
-    if not protocol in _transport_map:
+    if protocol not in _transport_map:
         _transport_map[protocol] = []
     _transport_map[protocol].append(transport)
 
 
 def find_transports(protocol):
-    if not protocol in _transport_map:
+    if protocol not in _transport_map:
         return None
     return _transport_map[protocol]
 
 
 def get(name, *args, **kwargs):
     transports = {cls.name: cls for cls in get_subclasses(Transport)}
-    if not name in transports:
+    if name not in transports:
         raise UnknownTransport()
     return transports[name](*args, **kwargs)
 
@@ -103,7 +103,7 @@ class TCPTransport(Transport):
         self.data_handler.connection_closed()
 
     def handle_error(self):
-        super().handle_error()
+        super(TCPTransport, self).handle_error()
 
     def fd(self):
         return self.sock.fileno()
@@ -116,10 +116,10 @@ class TCPTransport(Transport):
         reactor.add_transport(self)
 
     def make_socket(self):
-        af, socktype, _, _, _ = socket.getaddrinfo(self.host, self.port,
-                                                   socket.AF_UNSPEC,
-                                                   socket.SOCK_STREAM)[0]
-        self.sock = socket.socket(af, socktype)
+        af, sock_type, _, _, _ = socket.getaddrinfo(self.host, self.port,
+                                                    socket.AF_UNSPEC,
+                                                    socket.SOCK_STREAM)[0]
+        self.sock = socket.socket(af, sock_type)
 
     def open(self):
         self.make_socket()
@@ -144,13 +144,13 @@ class TCPTransport(Transport):
         self.data_handler.connection_made(transport)
 
     def handle_read(self):
-        if not self.sock is None:
+        if self.sock is not None:
             data = self.sock.recv(8192)
             if data:
                 self.data_handler.receive(data)
 
     def handle_write(self):
-        if not self.sock is None:
+        if self.sock is not None:
             if self.data_handler.has_output():
                 data = self.data_handler.get_output()
                 self.sock.send(data)
@@ -173,9 +173,12 @@ class TFOTransport(TCPTransport):
         self.sock.listen(1)
         self.make_unblocking()
 
+    def open(self):
+        super(TFOTransport, self).open()
+
     def open(self, hello):
         if hello is None:
-            super().open()
+            super(TFOTransport, self).open()
             return
         self.make_socket()
         self.sock.sendto(hello, _MSG_FASTOPEN, (self.host, self.port))
