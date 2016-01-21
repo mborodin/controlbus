@@ -946,6 +946,7 @@ class MQTTProtocol(BaseProtocol):
     def publish(self, topic, data, qos=None):
         message = _MQTTPublish(qos=qos)
         message.set_topic(topic)
+        message.set_id(self.message_id_generator.next())
         message.set_message(data)
         self.send(message)
         if qos > 0:
